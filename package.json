@@ -1,0 +1,21 @@
+{
+  "name": "digi-connect",
+  "version": "4.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DIGI CONNECT — escritório virtual 3D (estilo SoWork/Gather) com JSON como banco de dados",
+  "scripts": {
+    "dev": "node dev-server.js",
+    "build": "vite build",
+    "start": "NODE_ENV=production node dev-server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.2"
+  }
+}

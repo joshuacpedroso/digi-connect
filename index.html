@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>DIGI CONNECT — Escritório Virtual 3D</title>
+  <meta name="description" content="Escritório virtual 3D da DIGI: caminhe, sente na sua mesa e converse por proximidade." />
+  <meta name="theme-color" content="#0b1530" />
+  <link rel="icon" href="/digi-logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div id="sky"></div>
+  <canvas id="scene" aria-label="Escritório virtual 3D"></canvas>
+  <div id="overlay" aria-hidden="true"></div>
+  <div id="hoverTip" hidden></div>
+
+  <!-- carregando -->
+  <div id="loader">
+    <div class="loader-logo"><img src="/digi-logo.png" alt="" /><span>DIGI <b>CONNECT</b></span></div>
+    <div class="loader-bar"><i></i></div>
+    <small id="loaderText">Montando o escritório…</small>
+  </div>
+
+  <!-- login / cadastro -->
+  <section id="auth" hidden>
+    <div class="auth-card glass">
+      <div class="brand"><img src="/digi-logo.png" alt="" /><span>DIGI <b>CONNECT</b></span></div>
+      <span class="eyebrow">Escritório virtual 3D</span>
+      <h1>Trabalhe perto,<br /><span class="grad">mesmo estando longe.</span></h1>
+      <p class="lead">Caminhe pelo escritório, sente na sua mesa e converse naturalmente ao se aproximar das pessoas.</p>
+
+      <div id="welcomeBack" hidden>
+        <div class="wb-row"><span class="wb-avatar" id="wbAvatar"></span><div><small>Bem-vindo(a) de volta</small><strong id="wbName">—</strong></div></div>
+        <button class="btn-primary" id="enterBtn">Entrar no escritório <span>→</span></button>
+        <button class="btn-link" id="switchAccount">Entrar com outra conta</button>
+      </div>
+
+      <div id="authForms">
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="login" role="tab">Entrar</button>
+          <button class="tab" data-tab="register" role="tab">Criar conta</button>
+          <i class="tab-ink"></i>
+        </div>
+        <form id="loginForm" class="auth-form active" autocomplete="on">
+          <label>E-mail<input type="email" name="email" placeholder="voce@empresa.com" required autocomplete="email" /></label>
+          <label>Senha<input type="password" name="password" placeholder="••••••••" required autocomplete="current-password" /></label>
+          <button class="btn-primary" type="submit">Entrar no escritório <span>→</span></button>
+          <div class="form-error" role="alert"></div>
+        </form>
+        <form id="registerForm" class="auth-form" autocomplete="on">
+          <label>Seu nome<input type="text" name="name" placeholder="Como sua equipe te chama" required minlength="2" maxlength="40" autocomplete="name" /></label>
+          <label>E-mail<input type="email" name="email" placeholder="voce@empresa.com" required autocomplete="email" /></label>
+          <label>Senha<input type="password" name="password" placeholder="Mínimo 6 caracteres" required minlength="6" autocomplete="new-password" /></label>
+          <button class="btn-primary" type="submit">Criar conta e montar avatar <span>→</span></button>
+          <div class="form-error" role="alert"></div>
+        </form>
+      </div>
+
+      <div class="features">
+        <span><i>🎧</i>Áudio por proximidade</span>
+        <span><i>🪑</i>Sua mesa, seu lugar</span>
+        <span><i>🔒</i>Salas privadas</span>
+        <span><i>📹</i>Câmera em bolhas</span>
+      </div>
+    </div>
+    <div class="live-tag glass"><i></i>Prévia ao vivo do escritório</div>
+  </section>
+
+  <!-- customização do avatar -->
+  <section id="customizer" class="modal" hidden>
+    <div class="cz-card glass">
+      <div class="cz-preview">
+        <canvas id="czCanvas"></canvas>
+        <div class="cz-name-tag" id="czNameTag">Você</div>
+      </div>
+      <div class="cz-options">
+        <span class="eyebrow">Seu avatar</span>
+        <h2>Monte seu bonequinho ✨</h2>
+        <label class="cz-name">Nome de exibição<input id="czName" maxlength="40" /></label>
+        <div class="cz-group" data-key="skin"><b>Tom de pele</b><div class="swatches"></div></div>
+        <div class="cz-group" data-key="hairStyle"><b>Cabelo</b><div class="chips"></div></div>
+        <div class="cz-group" data-key="hairColor"><b>Cor do cabelo</b><div class="swatches"></div></div>
+        <div class="cz-group" data-key="shirt"><b>Camiseta</b><div class="swatches"></div></div>
+        <div class="cz-group" data-key="pants"><b>Calça</b><div class="swatches"></div></div>
+        <div class="cz-group" data-key="accessory"><b>Acessório</b><div class="chips"></div></div>
+        <div class="cz-actions">
+          <button class="btn-ghost" id="czRandom">🎲 Aleatório</button>
+          <button class="btn-ghost" id="czCancel" hidden>Cancelar</button>
+          <button class="btn-primary" id="czSave">Entrar no escritório <span>→</span></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HUD do escritório -->
+  <section id="hud" hidden>
+    <header class="hud-top">
+      <div class="pill glass brand-pill">
+        <img src="/digi-logo.png" alt="" /><span class="brand-name">DIGI <b>CONNECT</b></span>
+        <span class="sep"></span>
+        <span class="zone" id="zoneName"><i class="zone-dot"></i><span>Recepção</span></span>
+      </div>
+      <div class="hud-right">
+        <div class="pill glass net" id="netPill"><i></i><span>Conectando</span></div>
+        <button class="pill glass people-btn" id="peopleToggle" title="Pessoas e reuniões">
+          <span class="stack" id="onlineStack"></span><b id="onlineCount">1</b><span class="hide-sm">online</span>
+        </button>
+      </div>
+    </header>
+
+    <div id="callInfo" class="glass" hidden><i class="pulse"></i><div><strong id="callTitle">—</strong><small id="callSub">—</small></div><button id="leaveMeetingBtn" class="btn-danger sm" hidden>Sair da reunião</button></div>
+
+    <aside id="panel" class="glass">
+      <div class="panel-head">
+        <div><span class="eyebrow">DIGI · 1º andar</span><h3>Escritório</h3></div>
+        <button class="icon-btn" id="panelClose" title="Fechar"></button>
+      </div>
+      <div class="me-card">
+        <span class="p-avatar" id="meAvatar"></span>
+        <div class="me-meta"><strong id="meName">—</strong><small id="meDesk">Sem mesa ainda</small></div>
+      </div>
+      <div class="seg" id="statusSeg">
+        <button data-status="active"><i class="dot green"></i>Ativo</button>
+        <button data-status="busy"><i class="dot red"></i>Ocupado</button>
+        <button data-status="away"><i class="dot amber"></i>Ausente</button>
+      </div>
+      <div class="section-title"><span>Reuniões privadas</span><button class="mini-btn" id="newMeetingBtn" title="Nova reunião"></button></div>
+      <div id="meetingList" class="meeting-list"></div>
+      <div class="section-title"><span>Pessoas</span><span class="count" id="peopleCount">0</span></div>
+      <label class="search"><span id="searchIcon"></span><input id="peopleSearch" placeholder="Buscar pessoas…" /></label>
+      <div id="peopleList" class="people-list"></div>
+    </aside>
+
+    <div id="minimap" class="glass"><canvas width="264" height="176"></canvas><span>Mapa · clique para ir</span></div>
+
+    <div class="zoom glass">
+      <button id="zoomIn" title="Aproximar"></button>
+      <button id="zoomOut" title="Afastar"></button>
+      <button id="centerBtn" title="Centralizar em mim"></button>
+    </div>
+
+    <nav id="dock" class="glass" aria-label="Controles">
+      <button class="dock-btn" id="micBtn" title="Microfone (M)"><span class="ico"></span><small>Mic</small></button>
+      <button class="dock-btn" id="camBtn" title="Câmera (V)"><span class="ico"></span><small>Câmera</small></button>
+      <span class="dock-sep"></span>
+      <div class="emotes" id="emotes">
+        <button data-e="👋" title="Acenar (1)">👋</button><button data-e="❤️" title="(2)">❤️</button><button data-e="😂" title="(3)">😂</button><button data-e="🎉" title="(4)">🎉</button><button data-e="👍" title="(5)">👍</button>
+      </div>
+      <span class="dock-sep"></span>
+      <button class="dock-btn wide" id="deskBtn" title="Ir para minha mesa"><span class="ico"></span><small>Minha mesa</small></button>
+      <button class="dock-btn wide" id="meetBtn" title="Reunião privada"><span class="ico"></span><small>Reunião</small></button>
+      <span class="dock-sep"></span>
+      <button class="dock-btn" id="statusBtn" title="Status"><span class="ico status-ico"><i class="dot green"></i></span><small id="statusLabel">Ativo</small></button>
+      <button class="dock-btn" id="avatarBtn" title="Editar avatar"><span class="ico"></span><small>Avatar</small></button>
+      <button class="dock-btn" id="logoutBtn" title="Sair"><span class="ico"></span><small>Sair</small></button>
+    </nav>
+
+    <div class="hint glass" id="hint"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> andar · clique no chão para ir · clique numa mesa para sentar · <kbd>M</kbd> mic · <kbd>V</kbd> câmera</div>
+    <div id="joystick"><i></i></div>
+  </section>
+
+  <!-- popovers / modais -->
+  <div id="pop" class="pop glass" hidden></div>
+  <div id="statusMenu" class="pop glass" hidden>
+    <button data-status="active"><i class="dot green"></i>Ativo<small>Disponível para conversar</small></button>
+    <button data-status="busy"><i class="dot red"></i>Ocupado<small>Microfone sempre mudo</small></button>
+    <button data-status="away"><i class="dot amber"></i>Ausente<small>Some das conversas</small></button>
+  </div>
+
+  <section id="meetingModal" class="modal" hidden>
+    <div class="modal-card glass" role="dialog" aria-modal="true" aria-labelledby="mmTitle">
+      <div class="modal-head"><div><span class="eyebrow">Reunião privada</span><h3 id="mmTitle">Chamar para reunião</h3></div><button class="icon-btn" id="mmClose"></button></div>
+      <p>A reunião cria uma chamada privada só com quem você convidar — não importa onde cada um esteja no escritório.</p>
+      <label class="field">Assunto<input id="mmSubject" placeholder="Ex.: Alinhamento rápido" maxlength="40" /></label>
+      <div class="invite-list" id="inviteList"></div>
+      <button class="btn-primary" id="mmCreate">Criar reunião e convidar</button>
+    </div>
+  </section>
+
+  <div id="inviteCard" class="glass" hidden>
+    <span class="p-avatar" id="icAvatar"></span>
+    <div><span class="eyebrow">Convite de reunião</span><strong id="icTitle">Reunião</strong><small id="icFrom">—</small></div>
+    <div class="ic-actions"><button class="btn-ghost sm" id="icDecline">Agora não</button><button class="btn-primary sm" id="icJoin">Entrar</button></div>
+  </div>
+
+  <div id="demoBanner" hidden>⚠️ Modo demonstração na Vercel: os dados ficam temporários. Conecte o <b>Upstash Redis</b> no projeto para persistir o banco JSON.</div>
+  <div id="toast" role="status"></div>
+  <div id="audioSink" hidden></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
