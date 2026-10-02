@@ -8,6 +8,12 @@ import { handle } from './lib/actions.js';
 const PORT = Number(process.env.PORT) || 5173;
 const PROD = process.env.NODE_ENV === 'production';
 
+async function readRaw(req) {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  return Buffer.concat(chunks);
+}
+
 async function readBody(req) {
   const chunks = [];
   for await (const c of req) chunks.push(c);
@@ -24,7 +30,8 @@ const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css
 
 http.createServer(async (req, res) => {
   if (req.url === '/api' || req.url.startsWith('/api?') || req.url.startsWith('/api/')) {
-    req.body = await readBody(req);
+    if (req.url.startsWith('/api/upload')) req.body = await readRaw(req);
+    else if (req.method === 'POST') req.body = await readBody(req);
     return handle(req, res);
   }
   if (vite) return vite.middlewares(req, res);

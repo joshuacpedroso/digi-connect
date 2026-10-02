@@ -8,7 +8,9 @@ Tudo em português, e o banco de dados é **JSON**.
 
 - **V1**: primeira versão (avatares chibi). Fica salva na branch `v1`.
 - **V2**: avatares realistas, editor do escritório, Sala do Valdinei e Sala da Fran, e pós-produção (SSAO e bloom).
-- **V3** (atual): criador de personagem estilo GTA (MakeHuman) e mesas com espaço de conversa próprio.
+- **V3**: criador de personagem estilo GTA (MakeHuman) e mesas com espaço de conversa próprio.
+- **V4** (atual): chat (DMs, canais, mídia, áudio, recado de vídeo, GIF, visualização única), notificações push,
+  quadradinhos de chamada, compartilhamento de tela, app instalável (PWA) e banco no **Supabase**.
 
 ## O que tem
 
@@ -32,7 +34,15 @@ Tudo em português, e o banco de dados é **JSON**.
 - **Mesas**: clique numa mesa livre para atribuir a você. O boneco **anda até ela e senta**.
   Quando você volta ao escritório, já começa sentado na sua mesa.
 - **Assentos públicos**: as cadeiras da sala de reunião, o sofá, as poltronas, as banquetas e as cabines também servem para sentar.
-- **Microfone e câmera** no dock para ligar e desligar (atalhos `M` e `V`). A câmera aparece numa bolha em cima do avatar.
+- **Microfone, câmera e tela** no dock (atalhos `M` e `V`). Em qualquer conversa aparecem **quadradinhos no topo**
+  (estilo SoWork) com cada pessoa: vídeo ou o rosto do personagem, quem está falando fica com borda verde.
+  Clique num quadradinho para ampliar. Na **reunião privada** a câmera também aparece na bolha em cima do avatar.
+- **Compartilhar a tela**: quem está na conversa com você vê sua tela num quadro maior (dá para abrir em tela cheia).
+- **Mensagens**: conversas privadas e **canais `#nome`** com quem você escolher. Texto, fotos, vídeos, arquivos,
+  **GIFs** (GIPHY), **recado de áudio** (segure o microfone, deslize para cancelar ou para cima para travar),
+  **recado de vídeo** (bolinha de até 1 min) e **visualização única** (a pessoa abre uma vez e o arquivo é apagado).
+- **Notificações**: aviso dentro do app, contador de não lidas e **push** no celular/computador mesmo com o app fechado.
+- **App no celular**: instale pela tela inicial (PWA). No celular ele vira um app com abas: Escritório, Mensagens, Pessoas e Você.
 - **Áudio por proximidade**: o volume cai com a distância. A sala de reunião e as cabines são **zonas privadas**,
   então só quem está dentro se escuta.
 - **Cada mesa é um espaço próprio**: duas pessoas sentadas em mesas diferentes não abrem conversa, mesmo vizinhas.
@@ -48,7 +58,8 @@ Tudo em português, e o banco de dados é **JSON**.
 - API: uma Vercel Function em `api/index.js`, que fica em `POST /api`.
 - Tempo real: **WebRTC P2P**. Posição a ~15 Hz por data channel. Áudio e vídeo vão só para quem está no alcance.
   A sinalização passa pela API.
-- Banco: **JSON** (`lib/db.js`).
+- Banco: **JSON** (`lib/db.js`), guardado no **Supabase (Postgres)** em produção.
+- Arquivos do chat: **Supabase Storage** (bucket `digi-chat`, criado sozinho).
 
 ## Banco de dados JSON
 
@@ -63,10 +74,16 @@ Cada coleção é um documento JSON `{ id: registro }`:
 | `presence` | quem está online, posição, mic/câmera      |
 | `layout`   | móveis do escritório (editor)              |
 
-- **Local**: os arquivos ficam em `data/*.json`.
-- **Na Vercel**: o disco das funções é temporário. Por isso os **mesmos documentos JSON** são guardados no
-  **Upstash Redis** (tem plano grátis). O driver é escolhido sozinho pelas variáveis de ambiente.
-  Sem o Redis o app funciona em *modo demonstração* (dados temporários) e mostra um aviso na tela.
+| `channels` | conversas privadas e canais                |
+| `reads`    | até onde cada pessoa já leu                |
+| `push`     | aparelhos inscritos para notificação       |
+
+As mensagens ficam em listas (`m:<conversa>`), em ordem de chegada.
+
+- **Supabase (recomendado)**: cada registro vira uma linha JSON (`jsonb`) nas tabelas `digi_kv`, `digi_list` e `digi_meta`,
+  criadas sozinhas na primeira requisição, com RLS ligado (a chave pública do Supabase não enxerga nada).
+- **Local**: os arquivos ficam em `data/*.json` (ou num Postgres local com `SUPABASE_DB_URL`).
+- Também funciona com Upstash Redis. Sem nenhum banco na Vercel, o app roda em *modo demonstração* (os dados somem).
 
 ## Rodar local
 
@@ -80,9 +97,13 @@ Para testar a proximidade, abra duas janelas (uma anônima) e crie duas contas.
 ## Subir na Vercel (direto do Git)
 
 1. Em **vercel.com → Add New → Project**, importe este repositório. O framework **Vite** é detectado sozinho.
-2. No projeto, vá em **Storage → Marketplace → Upstash (Redis)**, crie o banco grátis e **conecte ao projeto**.
-   As variáveis `KV_REST_API_URL` e `KV_REST_API_TOKEN` entram automaticamente.
+2. No projeto, vá em **Storage → Create Database → Supabase**, crie (tem plano grátis) e **conecte ao projeto**.
+   As variáveis `POSTGRES_URL`, `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` entram sozinhas.
+   Se o Supabase já existe: em **Settings → Environment Variables** coloque `SUPABASE_DB_URL` (Connection string →
+   Transaction pooler), `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` (Project Settings → API).
 3. Opcional, em **Settings → Environment Variables**:
+   - `GIPHY_API_KEY`: chave grátis do [GIPHY](https://developers.giphy.com) para buscar GIFs.
+   - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`: chaves do push (sem elas, são geradas e guardadas no banco).
    - `SESSION_SECRET`: um texto aleatório comprido, para assinar o login.
    - `TURN_URL`, `TURN_USERNAME`, `TURN_CREDENTIAL`: um servidor TURN para chamadas em redes
      corporativas muito fechadas. Pode ser um do metered.ca, Twilio ou Cloudflare Calls.
@@ -112,6 +133,11 @@ src/three/kit.js      texturas procedurais e primitivas arredondadas
 public/mh/            corpo, morphs, roupas, cabelos e texturas (gerados pelo tools/bake-mh.mjs)
 src/rtc.js            malha WebRTC (P2P)
 src/nav.js            pathfinding A*
+lib/chat.js           mensagens, canais, visualização única, GIFs
+lib/files.js          uploads (Supabase Storage, Vercel Blob ou disco local)
+lib/push.js           notificações push (Web Push)
+src/chat.js           tela de mensagens, gravação de áudio/vídeo
+public/sw.js          service worker (app instalável + push)
 dev-server.js         servidor local (API + Vite)
 ```
 

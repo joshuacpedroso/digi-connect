@@ -6,7 +6,14 @@
   <title>DIGI CONNECT — Escritório Virtual 3D</title>
   <meta name="description" content="Escritório virtual 3D da DIGI: caminhe, sente na sua mesa e converse por proximidade." />
   <meta name="theme-color" content="#0b1530" />
-  <link rel="icon" href="/digi-logo.png" />
+  <link rel="icon" href="/icons/favicon-64.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="DIGI" />
+  <meta name="application-name" content="DIGI CONNECT" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -119,7 +126,16 @@
       </div>
     </header>
 
-    <div id="callInfo" class="glass" hidden><i class="pulse"></i><div><strong id="callTitle">—</strong><small id="callSub">—</small></div><button id="leaveMeetingBtn" class="btn-danger sm" hidden>Sair da reunião</button></div>
+    <div id="callBar">
+      <div id="callInfo" class="glass" hidden><i class="pulse"></i><div><strong id="callTitle">—</strong><small id="callSub">—</small></div><button id="leaveMeetingBtn" class="btn-danger sm" hidden>Sair da reunião</button></div>
+      <div id="callTiles" hidden></div>
+    </div>
+    <div id="stage" hidden>
+      <div class="stage-card">
+        <video autoplay playsinline muted></video>
+        <div class="stage-bar"><strong id="stageName">—</strong><span><button class="icon-btn" id="stageFull" title="Tela cheia">⛶</button><button class="icon-btn" id="stageClose" title="Fechar">✕</button></span></div>
+      </div>
+    </div>
 
     <aside id="panel" class="glass">
       <div class="panel-head">
@@ -153,6 +169,7 @@
     <nav id="dock" class="glass" aria-label="Controles">
       <button class="dock-btn" id="micBtn" title="Microfone (M)"><span class="ico"></span><small>Mic</small></button>
       <button class="dock-btn" id="camBtn" title="Câmera (V)"><span class="ico"></span><small>Câmera</small></button>
+      <button class="dock-btn" id="screenBtn" title="Compartilhar a tela"><span class="ico"></span><small>Tela</small></button>
       <span class="dock-sep"></span>
       <div class="emotes" id="emotes">
         <button data-e="👋" title="Acenar (1)">👋</button><button data-e="❤️" title="(2)">❤️</button><button data-e="😂" title="(3)">😂</button><button data-e="🎉" title="(4)">🎉</button><button data-e="👍" title="(5)">👍</button>
@@ -160,11 +177,35 @@
       <span class="dock-sep"></span>
       <button class="dock-btn wide" id="deskBtn" title="Ir para minha mesa"><span class="ico"></span><small>Minha mesa</small></button>
       <button class="dock-btn wide" id="meetBtn" title="Reunião privada"><span class="ico"></span><small>Reunião</small></button>
+      <button class="dock-btn wide" id="chatBtn" title="Mensagens"><span class="ico"></span><small>Mensagens</small><i class="chat-badge dock-badge" hidden>0</i></button>
       <span class="dock-sep"></span>
       <button class="dock-btn" id="statusBtn" title="Status"><span class="ico status-ico"><i class="dot green"></i></span><small id="statusLabel">Ativo</small></button>
       <button class="dock-btn" id="avatarBtn" title="Editar avatar"><span class="ico"></span><small>Avatar</small></button>
       <button class="dock-btn" id="logoutBtn" title="Sair"><span class="ico"></span><small>Sair</small></button>
     </nav>
+
+    <nav id="tabbar" aria-label="Navegação">
+      <button data-tab="office" class="on"><span class="ico" data-ico="office"></span><small>Escritório</small></button>
+      <button data-tab="chat"><span class="ico" data-ico="chat"></span><small>Mensagens</small><i class="chat-badge" hidden>0</i></button>
+      <button data-tab="people"><span class="ico" data-ico="people"></span><small>Pessoas</small></button>
+      <button data-tab="me"><span class="ico tab-me" id="tabMe"></span><small>Você</small></button>
+    </nav>
+
+    <div id="meSheet" class="sheet" hidden>
+      <div class="sheet-card glass">
+        <div class="sheet-grab"></div>
+        <div class="me-card"><span class="p-avatar big" id="sheetAvatar"></span><div class="me-meta"><strong id="sheetName">—</strong><small id="sheetEmail">—</small></div></div>
+        <div class="seg" id="sheetStatus">
+          <button data-status="active"><i class="dot green"></i>Ativo</button>
+          <button data-status="busy"><i class="dot red"></i>Ocupado</button>
+          <button data-status="away"><i class="dot amber"></i>Ausente</button>
+        </div>
+        <button class="sheet-row" data-act="avatar"><span class="ico" data-ico="sparkle"></span>Editar meu personagem</button>
+        <button class="sheet-row" data-act="notify" id="sheetNotify"><span class="ico" data-ico="bell"></span>Ativar notificações</button>
+        <button class="sheet-row" data-act="install" id="sheetInstall" hidden><span class="ico" data-ico="download"></span>Instalar o app no celular</button>
+        <button class="sheet-row danger" data-act="logout"><span class="ico" data-ico="logout"></span>Sair da conta</button>
+      </div>
+    </div>
 
     <div class="hint glass" id="hint"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> andar · clique no chão para ir · clique numa mesa para sentar · <kbd>M</kbd> mic · <kbd>V</kbd> câmera</div>
     <div id="joystick"><i></i></div>
@@ -209,7 +250,7 @@
     <div class="ic-actions"><button class="btn-ghost sm" id="icDecline">Agora não</button><button class="btn-primary sm" id="icJoin">Entrar</button></div>
   </div>
 
-  <div id="demoBanner" hidden>⚠️ Modo demonstração na Vercel: os dados ficam temporários. Conecte o <b>Upstash Redis</b> no projeto para persistir o banco JSON.</div>
+  <div id="demoBanner" hidden>⚠️ Modo demonstração na Vercel: os dados ficam temporários. Conecte o <b>Supabase</b> no projeto (Vercel → Storage) para guardar contas e mensagens.</div>
   <div id="toast" role="status"></div>
   <div id="audioSink" hidden></div>
 

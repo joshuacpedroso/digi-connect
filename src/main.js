@@ -9,6 +9,7 @@ import { Avatar, loadCharacter } from './three/human.js';
 import { NavGrid } from './nav.js';
 import { PeerMesh } from './rtc.js';
 import { createEditor } from './editor.js';
+import { createChat } from './chat.js';
 import { api, beacon } from './api.js';
 import { icons } from './icons.js';
 import { SPAWN, WORLD, ZONES, PROXIMITY, zoneAt, defaultLayout, desksOf } from '../shared/layout.js';
@@ -50,9 +51,10 @@ setIcon('#mmClose', icons.close); setIcon('#deskBtn .ico', icons.desk); setIcon(
 setIcon('#avatarBtn .ico', icons.sparkle); setIcon('#logoutBtn .ico', icons.logout);
 
 // ============================================================ estado
+let chat = null; // painel de mensagens (src/chat.js)
 const S = {
   me: null, users: new Map(), desks: {}, meetings: [], presence: new Map(), rev: -1,
-  sid: Math.random().toString(36).slice(2, 12), status: 'active', micOn: true, camOn: false,
+  sid: Math.random().toString(36).slice(2, 12), status: 'active', micOn: true, camOn: false, screenOn: false,
   meetingId: null, inOffice: false, driver: 'file', dismissedInvites: new Set(), lastEmote: null,
 };
 
@@ -368,7 +370,7 @@ function updateRemotes(dt) {
 }
 
 // ============================================================ mídia local
-const media = { mic: null, cam: null, ctx: null, analyser: null, level: 0, speaking: false, speakT: 0, selfVideo: document.createElement('video') };
+const media = { mic: null, cam: null, screen: null, ctx: null, analyser: null, level: 0, speaking: false, speakT: 0, selfVideo: document.createElement('video') };
 media.selfVideo.autoplay = true; media.selfVideo.muted = true; media.selfVideo.playsInline = true;
 
 const micEffective = () => !!media.mic && S.micOn && S.status === 'active';
@@ -432,12 +434,34 @@ async function setCam(on) {
   refreshLocalMedia();
 }
 
+// Compartilhar a tela: vai para todo mundo que está na sua conversa (proximidade, sala ou reunião).
+const canShareScreen = !!navigator.mediaDevices?.getDisplayMedia;
+async function setScreen(on) {
+  if (on) {
+    try {
+      const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 }, width: { max: 1920 }, height: { max: 1080 } }, audio: false });
+      media.screen = s.getVideoTracks()[0];
+      try { media.screen.contentHint = 'detail'; } catch { /* */ }
+      media.screen.onended = () => setScreen(false);
+      toast('Você está compartilhando a tela 🖥️ Quem está na conversa com você vê.');
+    } catch { return; }
+  } else {
+    media.screen?.stop();
+    media.screen = null;
+  }
+  S.screenOn = !!media.screen;
+  refreshLocalMedia();
+  renderTiles();
+  scheduleSync(100, true);
+}
+
 function refreshLocalMedia() {
   if (media.mic) media.mic.enabled = micEffective();
-  mesh?.setLocalTracks({ audio: media.mic, video: media.cam });
+  mesh?.setLocalTracks({ audio: media.mic, video: media.cam, screen: media.screen });
   gateMedia();
   sendState();
   renderDock();
+  renderTiles();
 }
 
 function measureMic(dt) {
@@ -468,7 +492,12 @@ function createMesh() {
         r.audio.volume = 0;
         r.audio.play().catch(() => {});
         r.analyser = makeAnalyser(stream);
+      } else if (kind === 'screen') {
+        r.screenStream = stream;
+        renderTiles();
       } else {
+        r.camStream = stream;
+        renderTiles();
         if (!stream) { r.video = null; return; }
         r.video = document.createElement('video');
         r.video.autoplay = true; r.video.muted = true; r.video.playsInline = true;
@@ -479,7 +508,7 @@ function createMesh() {
     },
     onChange: () => scheduleSync(mesh.connecting ? 500 : 2500, true),
   });
-  mesh.setLocalTracks({ audio: media.mic, video: media.cam });
+  mesh.setLocalTracks({ audio: media.mic, video: media.cam, screen: media.screen });
 }
 
 function proximity(r) {
@@ -512,7 +541,7 @@ function gateMedia(now = performance.now()) {
     const wasIn = r.inRange;
     r.vol = v;
     r.inRange = v > 0.001;
-    mesh.setSending(r.id, { audio: r.inRange && micEffective(), video: r.inRange && S.camOn });
+    mesh.setSending(r.id, { audio: r.inRange && micEffective(), video: r.inRange && S.camOn, screen: r.inRange && S.screenOn });
     if (r.audio) {
       r.audio.muted = !r.inRange;
       r.audio.volume = Math.max(0, Math.min(1, v));
@@ -541,20 +570,23 @@ function handlePeerData(id, msg) {
     r.seat = seatMap.has(msg.s) ? msg.s : null;
     r.lastDC = Date.now();
   } else if (msg.t === 's') {
-    r.st = { ...r.st, muted: !!msg.muted, cam: !!msg.cam, meeting_id: msg.meeting || null, speaking: !!msg.speaking };
+    const prevScreen = r.st.screen;
+    r.st = { ...r.st, muted: !!msg.muted, cam: !!msg.cam, screen: !!msg.screen, meeting_id: msg.meeting || null, speaking: !!msg.speaking };
+    if (prevScreen !== r.st.screen && r.inRange && r.st.screen) toast(`${firstName(S.users.get(id)?.name)} começou a compartilhar a tela 🖥️`);
+    renderTiles();
     const u = S.users.get(id);
     if (u && msg.status && STATUS[msg.status] && u.status !== msg.status) { u.status = msg.status; renderPeopleSoon(); }
     if (r.tag) r.tag._key = '';
   } else if (msg.t === 'e') {
     showEmote(r, msg.e);
     if (msg.to === S.me.id) toast(`${firstName(S.users.get(id)?.name)} acenou pra você ${msg.e}`);
-  } else if (msg.t === 'inv') {
+  } else if (msg.t === 'inv' || msg.t === 'chat') {
     scheduleSync(50, true);
   }
 }
 
 const posMsg = () => ({ t: 'p', x: +me.pos.x.toFixed(3), z: +me.pos.z.toFixed(3), r: +me.ry.toFixed(3), s: me.seat });
-const stateMsg = () => ({ t: 's', muted: !micEffective(), cam: S.camOn, meeting: S.meetingId, speaking: media.speaking, status: S.status });
+const stateMsg = () => ({ t: 's', muted: !micEffective(), cam: S.camOn, screen: S.screenOn, meeting: S.meetingId, speaking: media.speaking, status: S.status });
 
 function sendPos(force = false) {
   if (!mesh) return;
@@ -592,12 +624,13 @@ async function sync() {
   try {
     const j = await api('sync', {
       sid: S.sid, x: me.pos.x, z: me.pos.z, ry: me.ry, seat: me.seat,
-      muted: !micEffective(), cam: S.camOn, speaking: media.speaking, meeting_id: S.meetingId,
+      muted: !micEffective(), cam: S.camOn, screen: S.screenOn, speaking: media.speaking, meeting_id: S.meetingId,
       emote: S.lastEmote && Date.now() - S.lastEmote.t < 6000 ? S.lastEmote : null,
-      signals, rev: S.rev,
+      signals, rev: S.rev, chat_sig: chat?.sig ?? null,
     });
     setNet(true);
     if (j.users) applyBundle(j);
+    if (j.chat) chat?.applySync(j.chat);
     S.rev = j.rev;
     S.presence = new Map(j.presence.map((p) => [p.user_id, p]));
     applyPresence();
@@ -649,7 +682,7 @@ function applyPresence() {
     if (!mesh.isOpen(id) || now - r.lastDC > 3000) {
       r.target = { x: p.x, z: p.z, ry: p.ry };
       r.seat = p.seat;
-      r.st = { ...r.st, muted: p.muted, cam: p.cam, meeting_id: p.meeting_id };
+      r.st = { ...r.st, muted: p.muted, cam: p.cam, screen: !!p.screen, meeting_id: p.meeting_id };
     }
     if (p.emote && p.emote.t > r.lastEmoteT && !mesh.isOpen(id)) { r.lastEmoteT = p.emote.t; showEmote(r, p.emote.e); }
   }
@@ -657,6 +690,7 @@ function applyPresence() {
   renderPeopleSoon();
   renderCallInfo();
   renderOnline();
+  chat?.refreshPeople();
 }
 
 // ============================================================ mesas
@@ -756,13 +790,14 @@ function openPersonPop(id, x, y) {
   const pop = openPop(`
     <div class="pop-head">${avatarChip(u, 'big')}<div><strong>${esc(u.name)}</strong><small><i class="dot ${online ? statusOf(u.status).cls : 'gray'}"></i>${online ? statusOf(u.status).label : 'Offline'}${r?.st.muted ? ' · mudo' : ''}${online ? ` · ${esc(zoneAt(r.pos.x, r.pos.z).label)}` : ''}</small></div></div>
     ${online ? `<button data-a="go"><span class="i">${icons.walk}</span>Ir até ${esc(firstName(u.name))}</button><button data-a="wave"><span class="i">👋</span>Acenar</button><button data-a="meet"><span class="i">${icons.meeting}</span>Reunião privada</button>` : ''}
-    ${desk ? `<button data-a="desk"><span class="i">${icons.pin}</span>Ver mesa (${esc(seatMap.get(desk).desk.label)})</button>` : ''}
-    ${!online && !desk ? '<p>Offline e sem mesa atribuída.</p>' : ''}`, x, y);
+    <button data-a="msg"><span class="i">${icons.chat}</span>Mensagem</button>
+    ${desk ? `<button data-a="desk"><span class="i">${icons.pin}</span>Ver mesa (${esc(seatMap.get(desk).desk.label)})</button>` : ''}`, x, y);
   pop.onclick = (e) => {
     const a = e.target.closest('button')?.dataset.a;
     if (a === 'go') goToPerson(id);
     if (a === 'wave') waveAt(id);
     if (a === 'meet') openMeetingModal(id);
+    if (a === 'msg') chat?.openDM(id);
     if (a === 'desk') { const s = seatMap.get(desk); walkTo(approachOf(s).x, approachOf(s).z); }
     if (a) closePop();
   };
@@ -857,13 +892,14 @@ function renderTag(el, { name, status, muted, speaking, away, video, mirror, isM
 
 function updateOverlay() {
   if (!S.inOffice) return;
+  updateTilesSpeaking();
   const zoomScale = Math.max(0.75, Math.min(1.15, cam.zoom));
   overlay.style.setProperty('--zs', zoomScale);
   // eu
   if (!me.tag) me.tag = makeTag(true);
   renderTag(me.tag, {
     name: firstName(S.me.name), status: S.status, muted: !micEffective(), speaking: media.speaking,
-    away: S.status === 'away', video: S.camOn ? media.selfVideo : null, mirror: true, isMe: true,
+    away: S.status === 'away', video: S.camOn && currentMeeting() ? media.selfVideo : null, mirror: true, isMe: true,
   });
   placeTag(me.tag, me.pos, me.seat ? 1.42 : 1.8, 2);
   // remotos
@@ -873,7 +909,7 @@ function updateOverlay() {
     const speaking = r.inRange && r.level > 0.02;
     renderTag(r.tag, {
       name: firstName(u?.name), status: u?.status, muted: r.st.muted, speaking,
-      away: u?.status === 'away', video: r.st.cam && r.inRange && r.video ? r.video : null, mirror: false,
+      away: u?.status === 'away', video: r.st.cam && r.inRange && r.video && currentMeeting() ? r.video : null, mirror: false,
     });
     if (r.goneAt) { r.tag.style.display = 'none'; continue; }
     placeTag(r.tag, r.pos, r.seat ? 1.42 : 1.8, 1);
@@ -915,6 +951,7 @@ const currentMeeting = () => (S.meetingId ? S.meetings.find((m) => m.id === S.me
 
 function renderCallInfo() {
   if (!S.inOffice) return;
+  renderTiles();
   const box = $('#callInfo');
   const inRange = [...remotes.values()].filter((r) => r.inRange);
   const names = inRange.map((r) => firstName(S.users.get(r.id)?.name));
@@ -937,7 +974,106 @@ function renderCallInfo() {
   } else box.hidden = true;
 }
 
+// ============================================================ quadradinhos da chamada (estilo SoWork)
+// Em qualquer conversa (proximidade, sala privada ou reunião) aparece uma faixa no topo com cada pessoa:
+// vídeo quando a câmera está ligada, senão o rosto do personagem; telas compartilhadas viram um quadro maior.
+const tileEls = new Map();
+let stageKey = null;
+
+function tileList() {
+  const inRange = [...remotes.values()].filter((r) => r.inRange && !r.goneAt);
+  if (!inRange.length && !currentMeeting()) return [];
+  const list = [];
+  if (S.screenOn && media.screen) list.push({ key: 'screen:me', screen: true, name: 'Sua tela', stream: new MediaStream([media.screen]), streamId: media.screen.id, me: true });
+  for (const r of inRange) {
+    if (r.st.screen && r.screenStream) list.push({ key: `screen:${r.id}`, screen: true, name: `Tela de ${firstName(S.users.get(r.id)?.name)}`, stream: r.screenStream, streamId: r.screenStream.id, r });
+  }
+  list.push({ key: 'me', me: true, name: 'Você', avatar: S.me.avatar, stream: S.camOn && media.cam ? media.selfVideo.srcObject : null, streamId: S.camOn ? media.cam?.id : '', muted: !micEffective(), mirror: true });
+  for (const r of inRange) {
+    const u = S.users.get(r.id);
+    list.push({ key: r.id, name: firstName(u?.name), avatar: u?.avatar, stream: r.st.cam && r.camStream ? r.camStream : null, streamId: r.st.cam && r.camStream ? r.camStream.id : '', muted: r.st.muted, r });
+  }
+  return list;
+}
+
+function renderTiles() {
+  if (!S.inOffice) return;
+  const strip = $('#callTiles');
+  const list = tileList();
+  strip.hidden = !list.length;
+  const keep = new Set(list.map((t) => t.key));
+  for (const [k, el] of tileEls) if (!keep.has(k)) { el.remove(); tileEls.delete(k); }
+  list.forEach((t, i) => {
+    let el = tileEls.get(t.key);
+    if (!el) {
+      el = document.createElement('button');
+      el.className = 'tile' + (t.screen ? ' screen' : '') + (t.me ? ' me' : '');
+      el.innerHTML = '<div class="tile-media"><img class="tile-av" alt="" /><video autoplay playsinline muted></video></div><div class="tile-name"></div><span class="tile-expand"></span>';
+      el.querySelector('.tile-expand').innerHTML = icons.expand;
+      el.dataset.key = t.key;
+      tileEls.set(t.key, el);
+    }
+    if (strip.children[i] !== el) strip.insertBefore(el, strip.children[i] || null);
+    const video = el.querySelector('video');
+    if (el._sid !== t.streamId) {
+      el._sid = t.streamId;
+      video.srcObject = t.stream || null;
+      if (t.stream) video.play().catch(() => {});
+      el.classList.toggle('has-video', !!t.stream);
+    }
+    video.classList.toggle('mirror', !!t.mirror);
+    const img = el.querySelector('.tile-av');
+    if (!t.screen && t.avatar) {
+      const k = thumbKey(t.avatar);
+      if (img.dataset.av !== k) { img.dataset.av = k; img.src = cachedThumb(t.avatar) || BLANK; if (!cachedThumb(t.avatar)) avatarThumb(t.avatar); }
+    }
+    const nk = `${t.name}|${t.muted}`;
+    if (el._nk !== nk) {
+      el._nk = nk;
+      el.querySelector('.tile-name').innerHTML = `${t.muted ? `<span class="mi">${icons.micOff}</span>` : ''}<span>${esc(t.name)}</span>`;
+    }
+    el._t = t;
+  });
+  if (stageKey && !tileEls.get(stageKey)?._t?.stream) closeStage();
+}
+
+// borda verde em quem está falando (a cada quadro)
+function updateTilesSpeaking() {
+  for (const [k, el] of tileEls) {
+    const t = el._t;
+    if (!t || t.screen) continue;
+    const speaking = t.me ? media.speaking : t.r && t.r.inRange && t.r.level > 0.02;
+    el.classList.toggle('speaking', !!speaking);
+  }
+}
+
+function openStage(key) {
+  const t = tileEls.get(key)?._t;
+  if (!t?.stream) return;
+  stageKey = key;
+  const v = $('#stage video');
+  v.srcObject = t.stream;
+  v.classList.toggle('mirror', !!t.mirror);
+  v.play().catch(() => {});
+  $('#stageName').textContent = t.name;
+  $('#stage').hidden = false;
+}
+function closeStage() {
+  stageKey = null;
+  $('#stage').hidden = true;
+  $('#stage video').srcObject = null;
+}
+$('#callTiles').addEventListener('click', (e) => { const b = e.target.closest('.tile'); if (b) openStage(b.dataset.key); });
+$('#stageClose').onclick = closeStage;
+$('#stage').addEventListener('click', (e) => { if (e.target.id === 'stage') closeStage(); });
+$('#stageFull').onclick = () => { const v = $('#stage video'); (v.requestFullscreen || v.webkitEnterFullscreen)?.call(v); };
+addEventListener('keydown', (e) => { if (e.key === 'Escape' && stageKey) closeStage(); });
+
 // ============================================================ HUD: dock, pessoas, reuniões
+function setChatBadge(n) {
+  for (const el of $$('.chat-badge')) { el.hidden = !n; el.textContent = n > 99 ? '99+' : String(n); }
+}
+
 function renderDock() {
   if (!S.me) return;
   const mic = $('#micBtn');
@@ -951,7 +1087,16 @@ function renderDock() {
   camB.classList.toggle('on', S.camOn);
   camB.classList.toggle('off', !S.camOn);
   $('.ico', camB).innerHTML = S.camOn ? icons.cam : icons.camOff;
+  $('#chatBtn .ico').innerHTML = icons.chat;
+  const tm = thumbKey(S.me.avatar);
+  if ($('#tabMe').dataset.k !== tm) { $('#tabMe').dataset.k = tm; $('#tabMe').innerHTML = avatarChip(S.me); }
   $('small', camB).textContent = S.camOn ? 'Câmera' : 'Câm. off';
+  const scr = $('#screenBtn');
+  scr.hidden = !canShareScreen;
+  scr.classList.toggle('on', S.screenOn);
+  $('.ico', scr).innerHTML = icons.screen;
+  $('small', scr).textContent = S.screenOn ? 'Parar' : 'Tela';
+  scr.title = S.screenOn ? 'Parar de compartilhar a tela' : 'Compartilhar a tela';
   const desk = $('#deskBtn');
   if (me.seat) { $('.ico', desk).innerHTML = icons.stand; $('small', desk).textContent = 'Levantar'; desk.title = 'Levantar'; }
   else { $('.ico', desk).innerHTML = icons.desk; $('small', desk).textContent = 'Minha mesa'; desk.title = 'Ir para minha mesa'; }
@@ -1126,6 +1271,7 @@ $('#micBtn').onclick = async () => {
   refreshLocalMedia();
 };
 $('#camBtn').onclick = () => { unlockAudio(); setCam(!S.camOn); };
+$('#screenBtn').onclick = () => { unlockAudio(); setScreen(!S.screenOn); };
 $('#deskBtn').onclick = () => {
   if (me.seat) { standUp(); return; }
   const id = myDeskId();
@@ -1157,15 +1303,58 @@ $('#statusBtn').onclick = (e) => {
 $('#statusMenu').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setStatus(b.dataset.status); });
 $('#statusSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setStatus(b.dataset.status); });
 $('#peopleToggle').onclick = () => $('#hud').classList.toggle('panel-open');
-$('#panelClose').onclick = () => $('#hud').classList.remove('panel-open');
+$('#panelClose').onclick = () => { $('#hud').classList.remove('panel-open'); $$('#tabbar button').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'office')); };
 $('#zoomIn').onclick = () => { cam.zoomGoal = Math.min(3, cam.zoomGoal * 1.2); };
 $('#zoomOut').onclick = () => { cam.zoomGoal = Math.max(0.5, cam.zoomGoal / 1.2); };
 $('#centerBtn').onclick = () => { cam.snap = 0.4; cam.zoomGoal = innerWidth < 860 ? 1.5 : 1.9; };
 $('#avatarBtn').onclick = () => openCustomizer(false);
 $('#editBtn').onclick = () => { if (editor.active) return; if (me.seat) standUp(true); editor.enter(); };
+$('#chatBtn').onclick = () => { if (chat?.visible) chat.close(); else chat?.open(); };
+
+// ---------- app no celular: abas, perfil, instalação
+$$('[data-ico]').forEach((el) => { el.innerHTML = icons[el.dataset.ico] || ''; });
+function setTab(tab) {
+  $$('#tabbar button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  if (tab !== 'chat') chat?.close();
+  if (tab !== 'people') $('#hud').classList.remove('panel-open');
+  if (tab === 'chat') chat?.open();
+  if (tab === 'people') $('#hud').classList.add('panel-open');
+  if (tab === 'me') openSheet();
+}
+$('#tabbar').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
+function openSheet() {
+  $('#sheetAvatar').outerHTML = avatarChip(S.me, 'big').replace('<span class="p-avatar', '<span id="sheetAvatar" class="p-avatar');
+  $('#sheetName').textContent = S.me.name;
+  $('#sheetEmail').textContent = S.me.email || '';
+  $$('#sheetStatus button').forEach((b) => b.classList.toggle('on', b.dataset.status === S.status));
+  $('#sheetNotify').hidden = !('Notification' in window) || Notification.permission === 'granted';
+  $('#sheetInstall').hidden = !installEvt && !(isIOS && !isStandalone);
+  $('#meSheet').hidden = false;
+}
+function closeSheet() { $('#meSheet').hidden = true; $$('#tabbar button').forEach((b) => b.classList.toggle('on', b.dataset.tab === (chat?.visible ? 'chat' : 'office'))); }
+$('#meSheet').addEventListener('click', async (e) => {
+  if (e.target.id === 'meSheet') return closeSheet();
+  const st = e.target.closest('[data-status]');
+  if (st) { await setStatus(st.dataset.status); openSheet(); return; }
+  const a = e.target.closest('[data-act]')?.dataset.act;
+  if (!a) return;
+  if (a === 'avatar') { closeSheet(); openCustomizer(false); }
+  if (a === 'notify') { await chat?.setupPush(true); openSheet(); }
+  if (a === 'install') {
+    if (installEvt) { installEvt.prompt(); installEvt = null; closeSheet(); }
+    else toast('No iPhone: toque em Compartilhar ⬆️ e depois em "Adicionar à Tela de Início" 📲', 6000);
+  }
+  if (a === 'logout') { closeSheet(); $('#logoutBtn').click(); }
+});
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+let installEvt = null;
+addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; });
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch((e) => console.warn('sw', e));
 $('#logoutBtn').onclick = async () => {
-  if (!confirm('Sair do escritório?')) return;
+  if (!confirm('Sair da conta?')) return;
   mesh?.closeAll();
+  try { const sub = await (await navigator.serviceWorker?.ready)?.pushManager?.getSubscription(); if (sub) { await api('push_unsubscribe', { endpoint: sub.endpoint }); await sub.unsubscribe(); } } catch { /* */ }
   try { await api('logout'); } catch { /* */ }
   location.reload();
 };
@@ -1719,6 +1908,13 @@ async function enterOffice() {
       me.ry = Math.PI * 0.75;
     }
     createMesh();
+    chat ||= createChat({
+      S, api, toast, avatarChip, statusOf,
+      broadcast: (m) => mesh?.broadcast(m),
+      scheduleSync: (ms) => scheduleSync(ms, true),
+      onBadge: setChatBadge,
+      onVisible: (v) => { $('#chatBtn').classList.toggle('active', v); $$('#tabbar button').forEach((b) => b.classList.toggle('on', b.dataset.tab === (v ? 'chat' : 'office'))); },
+    });
     S.inOffice = true;
     $('#auth').hidden = true;
     $('#hud').hidden = false;
@@ -1735,6 +1931,10 @@ async function enterOffice() {
     setTimeout(hideHint, 15000);
     setTimeout(() => { me.avatar.emote(); toast(desk ? `Bom te ver, ${firstName(S.me.name)}! Você já está na sua mesa 👋` : `Bem-vindo(a), ${firstName(S.me.name)}! Clique numa mesa livre para torná-la sua 🪑`, 4200); }, 900);
     sync();
+    chat.setupPush();
+    const qs = new URLSearchParams(location.search);
+    const deep = qs.get('chat');
+    if (deep || qs.get('tab') === 'chat') { history.replaceState(null, '', location.pathname); chat.open(deep || undefined); }
   } catch (e) {
     toast(e.message);
     if (e.status === 401) { $('#welcomeBack').hidden = true; $('#authForms').hidden = false; }

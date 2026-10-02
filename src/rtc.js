@@ -1,6 +1,6 @@
 // Malha WebRTC entre todos que estão online.
 // - Data channel: posição em tempo real (~15 Hz), emotes e estado de mic/câmera.
-// - Áudio/vídeo: transceivers fixos; liga/desliga o envio com replaceTrack (sem renegociar),
+// - Áudio, câmera e tela: transceivers fixos; liga/desliga o envio com replaceTrack (sem renegociar),
 //   então quem está longe não recebe nada (privacidade + banda).
 // - Sinalização (offer/answer) passa pelo /api sync, guardada no banco JSON.
 
@@ -19,7 +19,7 @@ export class PeerMesh {
     this.onChange = onChange;
     this.peers = new Map();
     this.outbox = [];
-    this.local = { audio: null, video: null };
+    this.local = { audio: null, video: null, screen: null };
   }
 
   get connecting() {
@@ -48,10 +48,11 @@ export class PeerMesh {
 
   create(id, sid) {
     const pc = new RTCPeerConnection({ iceServers: this.ice });
-    const p = { id, sid, pc, dc: null, open: false, created: Date.now(), audioTx: null, videoTx: null, sending: { audio: undefined, video: undefined }, remote: { audio: null, video: null } };
+    const p = { id, sid, pc, dc: null, open: false, created: Date.now(), audioTx: null, videoTx: null, screenTx: null, sending: { audio: undefined, video: undefined, screen: undefined }, remote: { audio: null, video: null, screen: null } };
     this.peers.set(id, p);
     pc.ontrack = (e) => {
-      const kind = e.track.kind;
+      // ordem fixa dos transceivers: 0 áudio, 1 câmera, 2 tela
+      const kind = e.track.kind === 'audio' ? 'audio' : e.transceiver?.mid === '2' ? 'screen' : 'video';
       p.remote[kind] = new MediaStream([e.track]);
       this.onTrack?.(id, kind, p.remote[kind]);
     };
@@ -85,6 +86,7 @@ export class PeerMesh {
     const { pc } = p;
     p.audioTx = pc.addTransceiver('audio', { direction: 'sendrecv' });
     p.videoTx = pc.addTransceiver('video', { direction: 'sendrecv' });
+    p.screenTx = pc.addTransceiver('video', { direction: 'sendrecv' });
     this.bindChannel(p, pc.createDataChannel('dc'));
     try {
       await pc.setLocalDescription(await pc.createOffer());
@@ -106,7 +108,7 @@ export class PeerMesh {
           t.direction = 'sendrecv';
           const kind = t.receiver.track?.kind;
           if (kind === 'audio') p.audioTx = t;
-          if (kind === 'video') p.videoTx = t;
+          if (kind === 'video') { if (t.mid === '2') p.screenTx = t; else p.videoTx = t; }
         }
         await pc.setLocalDescription(await pc.createAnswer());
         await this.waitIce(pc);
@@ -130,6 +132,7 @@ export class PeerMesh {
     try { p.pc.close(); } catch { /* */ }
     this.onTrack?.(id, 'audio', null);
     this.onTrack?.(id, 'video', null);
+    this.onTrack?.(id, 'screen', null);
     this.onChange?.();
   }
 
@@ -145,19 +148,21 @@ export class PeerMesh {
     for (const p of this.peers.values()) if (p.open && p.dc.readyState === 'open') { try { p.dc.send(data); } catch { /* */ } }
   }
 
-  setLocalTracks({ audio, video }) {
-    this.local = { audio: audio ?? null, video: video ?? null };
-    for (const p of this.peers.values()) { p.sending = { audio: undefined, video: undefined }; }
+  setLocalTracks({ audio, video, screen }) {
+    this.local = { audio: audio ?? null, video: video ?? null, screen: screen ?? null };
+    for (const p of this.peers.values()) { p.sending = { audio: undefined, video: undefined, screen: undefined }; }
   }
 
   // Liga/desliga o envio de mídia para um par específico.
-  setSending(id, { audio, video }) {
+  setSending(id, { audio, video, screen }) {
     const p = this.peers.get(id);
     if (!p || !p.audioTx) return;
     const a = audio ? this.local.audio : null;
     const v = video ? this.local.video : null;
+    const sc = screen ? this.local.screen : null;
     if (p.sending.audio !== a) { p.sending.audio = a; p.audioTx.sender.replaceTrack(a).catch(() => {}); }
     if (p.sending.video !== v) { p.sending.video = v; p.videoTx?.sender.replaceTrack(v).catch(() => {}); }
+    if (p.sending.screen !== sc) { p.sending.screen = sc; p.screenTx?.sender.replaceTrack(sc).catch(() => {}); }
   }
 
   isOpen(id) { return !!this.peers.get(id)?.open; }
