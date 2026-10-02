@@ -11,7 +11,7 @@ import { PeerMesh } from './rtc.js';
 import { createEditor } from './editor.js';
 import { api, beacon } from './api.js';
 import { icons } from './icons.js';
-import { SPAWN, WORLD, ZONES, PROXIMITY, AVATAR_OPTIONS, zoneAt, randomAvatar, defaultLayout, desksOf } from '../shared/layout.js';
+import { SPAWN, WORLD, ZONES, PROXIMITY, AVATAR_OPTIONS, CHARACTERS, zoneAt, randomAvatar, defaultLayout, desksOf } from '../shared/layout.js';
 
 // ============================================================ utilidades
 const $ = (s, el = document) => el.querySelector(s);
@@ -32,9 +32,9 @@ function toast(msg, ms = 2800) {
 }
 
 function avatarChip(user, cls = '') {
-  const a = user?.avatar || randomAvatar(user?.id || 'x');
+  const a = user?.avatar?.character ? user.avatar : randomAvatar(user?.id || 'x');
   const st = user?.status ? `<i class="st dot ${statusOf(user.status).cls}"></i>` : '';
-  return `<span class="p-avatar ${a.hairStyle === 'bald' ? 'bald' : ''} ${cls}" style="--skin:${a.skin};--hair:${a.hairColor};--shirt:${a.shirt}">${st}</span>`;
+  return `<span class="p-avatar ${cls}"><img src="/avatars/thumbs/${a.character}.webp" alt="" loading="lazy" />${st}</span>`;
 }
 
 // ícones nos botões
@@ -852,7 +852,7 @@ function updateOverlay() {
     name: firstName(S.me.name), status: S.status, muted: !micEffective(), speaking: media.speaking,
     away: S.status === 'away', video: S.camOn ? media.selfVideo : null, mirror: true, isMe: true,
   });
-  placeTag(me.tag, me.pos, me.seat ? 1.5 : 1.62, 2);
+  placeTag(me.tag, me.pos, me.seat ? 1.42 : 1.8, 2);
   // remotos
   for (const r of remotes.values()) {
     if (!r.tag) r.tag = makeTag(false);
@@ -863,7 +863,7 @@ function updateOverlay() {
       away: u?.status === 'away', video: r.st.cam && r.inRange && r.video ? r.video : null, mirror: false,
     });
     if (r.goneAt) { r.tag.style.display = 'none'; continue; }
-    placeTag(r.tag, r.pos, r.seat ? 1.5 : 1.62, 1);
+    placeTag(r.tag, r.pos, r.seat ? 1.42 : 1.8, 1);
   }
   // nomes nas mesas
   const showDesk = cam.zoom > 1.1;
@@ -1321,6 +1321,7 @@ mini.addEventListener('click', (e) => {
 
 // ============================================================ figurantes da tela inicial
 const npcs = [];
+const NPC_CHARS = ['Business_Female_01', 'Business_Male_01', 'Female_Adult_12', 'Male_Adult_04', 'Business_Female_04', 'Business_Male_05', 'Female_Adult_08', 'Male_Adult_09'];
 function spawnNpcs() {
   const names = ['ana', 'joão', 'bia', 'leo', 'duda', 'rafa', 'gabi', 'theo', 'nina', 'caio', 'lia', 'enzo'];
   const all = [...seatMap.values()];
@@ -1331,14 +1332,14 @@ function spawnNpcs() {
     ...all.filter((s) => s.kind === 'stool').slice(1, 2),
   ];
   pick.forEach((s, i) => {
-    const a = new Avatar(randomAvatar(names[i % names.length] + 'digi'));
+    const a = new Avatar({ character: NPC_CHARS[i % NPC_CHARS.length], accessory: 'none' });
     a.root.position.set(s.x, 0, s.z);
     a.root.rotation.y = s.face;
     scene.add(a.root);
     npcs.push({ a, seat: s, pos: new THREE.Vector3(s.x, 0, s.z), ry: s.face, path: [] });
   });
   [[-3, 6], [6, 1], [-12, 4], [13, 8.5]].forEach(([x, z], i) => {
-    const a = new Avatar(randomAvatar(names[(i + 9) % names.length] + 'walk'));
+    const a = new Avatar({ character: NPC_CHARS[(i + 5) % NPC_CHARS.length], accessory: 'none' });
     a.root.position.set(x, 0, z);
     scene.add(a.root);
     npcs.push({ a, seat: null, pos: new THREE.Vector3(x, 0, z), ry: 0, path: [], wait: Math.random() * 2 });
@@ -1401,11 +1402,7 @@ function updateCamera(dt) {
 
 // ============================================================ customização do avatar
 const LABELS = {
-  hairStyle: { short: 'Curto', fringe: 'Franja', buzz: 'Raspado', long: 'Longo', ponytail: 'Rabo de cavalo', bun: 'Coque', curly: 'Cacheado', bald: 'Careca' },
-  face: { smile: 'Sorriso', calm: 'Sereno', lashes: 'Cílios', beard: 'Barba', mustache: 'Bigode', stubble: 'Barba rala', freckles: 'Sardas' },
-  top: { tshirt: 'Camiseta', polo: 'Polo', hoodie: 'Moletom', social: 'Camisa social', blazer: 'Blazer + gravata', sweater: 'Suéter' },
-  legwear: { jeans: 'Jeans', social: 'Social', shorts: 'Bermuda', skirt: 'Saia' },
-  accessory: { none: 'Nenhum', glasses: 'Óculos', sunglasses: 'Óculos escuros', headphones: 'Headphone', cap: 'Boné', beanie: 'Gorro' },
+  accessory: { none: 'Nenhum', glasses: 'Óculos', sunglasses: 'Óculos escuros', headphones: 'Headphone' },
 };
 let cz = null;
 
@@ -1443,19 +1440,31 @@ function initCustomizerRenderer() {
   cz = { renderer: r, scene: sc, camera: pc, avatar, cfg: null, get spin() { return spin; }, set spin(v) { spin = v; }, dragging: () => drag !== null };
 }
 
+let czFilter = 'all';
 function renderCustomizerOptions() {
-  for (const group of $$('.cz-group')) {
+  for (const group of $$('.cz-group[data-key]')) {
     const key = group.dataset.key;
     const box = $('.swatches, .chips', group);
-    box.innerHTML = AVATAR_OPTIONS[key].map((v) => (LABELS[key]
-      ? `<button class="chip ${cz.cfg[key] === v ? 'on' : ''}" data-v="${v}">${LABELS[key][v]}</button>`
-      : `<button class="swatch ${cz.cfg[key] === v ? 'on' : ''}" data-v="${v}" style="--c:${v}" title="${v}"></button>`)).join('');
+    box.innerHTML = AVATAR_OPTIONS[key].map((v) => `<button class="chip ${cz.cfg[key] === v ? 'on' : ''}" data-v="${v}">${LABELS[key]?.[v] || v}</button>`).join('');
   }
+  const list = CHARACTERS.filter((c) => czFilter === 'all' || (czFilter === 'B' ? c.business : c.g === czFilter));
+  $('#charGrid').innerHTML = list.map((c) => `<button class="char ${cz.cfg.character === c.id ? 'on' : ''}" data-char="${c.id}"><img src="/avatars/thumbs/${c.id}-full.webp" alt="" loading="lazy" /></button>`).join('');
+  $$('#czFilter .chip').forEach((b) => b.classList.toggle('on', b.dataset.f === czFilter));
 }
+
+$('#czFilter').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; czFilter = b.dataset.f; renderCustomizerOptions(); });
+$('#charGrid').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-char]');
+  if (!b) return;
+  cz.cfg.character = b.dataset.char;
+  cz.avatar.setConfig(cz.cfg);
+  setTimeout(() => cz.avatar.emote(), 600);
+  renderCustomizerOptions();
+});
 
 function openCustomizer(first) {
   if (!cz) initCustomizerRenderer();
-  cz.cfg = { ...(S.me?.avatar || randomAvatar()) };
+  cz.cfg = { ...(S.me?.avatar?.character ? S.me.avatar : randomAvatar(S.me?.id)) };
   cz.avatar.setConfig(cz.cfg);
   cz.first = first;
   $('#czName').value = S.me?.name || '';
@@ -1468,7 +1477,7 @@ function openCustomizer(first) {
 }
 
 $('#customizer').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-v]');
+  const b = e.target.closest('.cz-group[data-key] [data-v]');
   if (!b) return;
   const key = b.closest('.cz-group').dataset.key;
   cz.cfg[key] = b.dataset.v;

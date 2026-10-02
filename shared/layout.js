@@ -156,44 +156,40 @@ export function desksOf(items) {
 
 export const PROXIMITY = { full: 2.2, max: 4.6 };
 
+// Personagens realistas (Microsoft Rocketbox, licença MIT) — arquivos em public/avatars/<id>.glb
+export const CHARACTERS = [
+  ['Business_Female_01', 'F'], ['Business_Female_02', 'F'], ['Business_Female_03', 'F'], ['Business_Female_04', 'F'],
+  ['Female_Adult_01', 'F'], ['Female_Adult_02', 'F'], ['Female_Adult_05', 'F'], ['Female_Adult_08', 'F'], ['Female_Adult_09', 'F'],
+  ['Female_Adult_11', 'F'], ['Female_Adult_12', 'F'], ['Female_Adult_13', 'F'], ['Female_Adult_15', 'F'], ['Female_Adult_17', 'F'], ['Female_Party_02', 'F'],
+  ['Business_Male_01', 'M'], ['Business_Male_02', 'M'], ['Business_Male_03', 'M'], ['Business_Male_04', 'M'], ['Business_Male_05', 'M'], ['Business_Male_06', 'M'],
+  ['Male_Adult_01', 'M'], ['Male_Adult_02', 'M'], ['Male_Adult_04', 'M'], ['Male_Adult_06', 'M'], ['Male_Adult_08', 'M'], ['Male_Adult_09', 'M'],
+  ['Male_Adult_10', 'M'], ['Male_Adult_12', 'M'], ['Male_Adult_16', 'M'], ['Male_Adult_18', 'M'],
+].map(([id, g]) => ({ id, g, business: id.startsWith('Business') }));
+
 // Opções de personalização dos avatares (o servidor valida contra estas listas).
 export const AVATAR_OPTIONS = {
-  skin: ['#f9dcc6', '#f1c3a1', '#e0a47c', '#c4835a', '#94603d', '#5e3a26'],
-  hairStyle: ['short', 'fringe', 'buzz', 'long', 'ponytail', 'bun', 'curly', 'bald'],
-  hairColor: ['#1f1715', '#4a2c1d', '#8a5530', '#c99a5b', '#e8d29a', '#b23a2e', '#6d4bd6', '#9aa3ad'],
-  face: ['smile', 'calm', 'lashes', 'beard', 'mustache', 'stubble', 'freckles'],
-  top: ['tshirt', 'polo', 'hoodie', 'social', 'blazer', 'sweater'],
-  shirt: ['#2f7bff', '#7c5cff', '#ff6b8b', '#ffb547', '#22c58b', '#1fb6d6', '#ff7a45', '#2b3446', '#f4f4f6', '#c2263f'],
-  legwear: ['jeans', 'social', 'shorts', 'skirt'],
-  pants: ['#2d4a7a', '#26324a', '#3a3a40', '#6b5a48', '#c8b89a', '#8a9bb5'],
-  shoes: ['#f4f4f6', '#1f2229', '#7a4a2a', '#2f7bff', '#ff5d6e'],
-  accessory: ['none', 'glasses', 'sunglasses', 'headphones', 'cap', 'beanie'],
+  character: CHARACTERS.map((c) => c.id),
+  accessory: ['none', 'glasses', 'sunglasses', 'headphones'],
 };
 
-export function randomAvatar(seed = Math.random().toString()) {
+function hashOf(seed) {
   let h = 2166136261;
-  for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
-  const rnd = () => { h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0; h = Math.imul(h ^ (h >>> 13), 3266489909) >>> 0; return ((h ^= h >>> 16) >>> 0) / 4294967296; };
-  const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+  for (const c of String(seed)) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
+  return h;
+}
+
+export function randomAvatar(seed = Math.random().toString()) {
+  const h = hashOf(seed);
   return {
-    skin: pick(AVATAR_OPTIONS.skin),
-    hairStyle: pick(AVATAR_OPTIONS.hairStyle.slice(0, 7)),
-    hairColor: pick(AVATAR_OPTIONS.hairColor.slice(0, 6)),
-    face: pick(AVATAR_OPTIONS.face),
-    top: pick(AVATAR_OPTIONS.top),
-    shirt: pick(AVATAR_OPTIONS.shirt),
-    legwear: pick(['jeans', 'jeans', 'social', 'social', 'shorts', 'skirt']),
-    pants: pick(AVATAR_OPTIONS.pants),
-    shoes: pick(AVATAR_OPTIONS.shoes),
-    accessory: rnd() < 0.55 ? 'none' : pick(AVATAR_OPTIONS.accessory.slice(1)),
+    character: CHARACTERS[h % CHARACTERS.length].id,
+    accessory: (h >>> 8) % 5 === 0 ? AVATAR_OPTIONS.accessory[1 + ((h >>> 12) % 3)] : 'none',
   };
 }
 
-export function sanitizeAvatar(input) {
-  const base = randomAvatar();
-  const out = {};
-  for (const key of Object.keys(AVATAR_OPTIONS)) {
-    out[key] = AVATAR_OPTIONS[key].includes(input?.[key]) ? input[key] : base[key];
-  }
-  return out;
+export function sanitizeAvatar(input, seed) {
+  const base = randomAvatar(seed || JSON.stringify(input || {}));
+  return {
+    character: AVATAR_OPTIONS.character.includes(input?.character) ? input.character : base.character,
+    accessory: AVATAR_OPTIONS.accessory.includes(input?.accessory) ? input.accessory : 'none',
+  };
 }

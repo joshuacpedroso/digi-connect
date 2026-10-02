@@ -78,17 +78,12 @@
       </div>
       <div class="cz-options">
         <span class="eyebrow">Seu avatar</span>
-        <h2>Monte seu bonequinho ✨</h2>
+        <h2>Escolha seu avatar ✨</h2>
         <label class="cz-name">Nome de exibição<input id="czName" maxlength="40" /></label>
-        <div class="cz-group" data-key="skin"><b>Tom de pele</b><div class="swatches"></div></div>
-        <div class="cz-group" data-key="hairStyle"><b>Cabelo</b><div class="chips"></div></div>
-        <div class="cz-group" data-key="hairColor"><b>Cor do cabelo</b><div class="swatches"></div></div>
-        <div class="cz-group" data-key="face"><b>Rosto</b><div class="chips"></div></div>
-        <div class="cz-group" data-key="top"><b>Roupa</b><div class="chips"></div></div>
-        <div class="cz-group" data-key="shirt"><b>Cor da roupa</b><div class="swatches"></div></div>
-        <div class="cz-group" data-key="legwear"><b>Parte de baixo</b><div class="chips"></div></div>
-        <div class="cz-group" data-key="pants"><b>Cor da calça/saia</b><div class="swatches"></div></div>
-        <div class="cz-group" data-key="shoes"><b>Tênis / sapato</b><div class="swatches"></div></div>
+        <div class="cz-group"><b>Escolha seu personagem</b>
+          <div class="chips cz-filter" id="czFilter"><button class="chip on" data-f="all">Todos</button><button class="chip" data-f="F">Mulheres</button><button class="chip" data-f="M">Homens</button><button class="chip" data-f="B">Executivos</button></div>
+          <div class="char-grid" id="charGrid"></div>
+        </div>
         <div class="cz-group" data-key="accessory"><b>Acessório</b><div class="chips"></div></div>
         <div class="cz-actions">
           <button class="btn-ghost" id="czRandom">🎲 Aleatório</button>
