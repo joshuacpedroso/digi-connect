@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { buildOffice } from './three/office.js';
-import { Avatar } from './three/avatar.js';
+import { Avatar, loadCharacter } from './three/human.js';
 import { NavGrid } from './nav.js';
 import { PeerMesh } from './rtc.js';
 import { api, beacon } from './api.js';
@@ -1074,7 +1074,7 @@ $('#peopleToggle').onclick = () => $('#hud').classList.toggle('panel-open');
 $('#panelClose').onclick = () => $('#hud').classList.remove('panel-open');
 $('#zoomIn').onclick = () => { cam.zoomGoal = Math.min(3, cam.zoomGoal * 1.2); };
 $('#zoomOut').onclick = () => { cam.zoomGoal = Math.max(0.5, cam.zoomGoal / 1.2); };
-$('#centerBtn').onclick = () => { cam.snap = 0.4; cam.zoomGoal = innerWidth < 860 ? 1.3 : 1.65; };
+$('#centerBtn').onclick = () => { cam.snap = 0.4; cam.zoomGoal = innerWidth < 860 ? 1.5 : 1.9; };
 $('#avatarBtn').onclick = () => openCustomizer(false);
 $('#logoutBtn').onclick = async () => {
   if (!confirm('Sair do escritório?')) return;
@@ -1320,8 +1320,11 @@ function updateCamera(dt) {
 
 // ============================================================ customização do avatar
 const LABELS = {
-  hairStyle: { short: 'Curto', long: 'Longo', bun: 'Coque', curly: 'Cacheado', mohawk: 'Moicano', bald: 'Careca' },
-  accessory: { none: 'Nenhum', glasses: 'Óculos', headphones: 'Headphone', cap: 'Boné', beanie: 'Gorro' },
+  hairStyle: { short: 'Curto', fringe: 'Franja', buzz: 'Raspado', long: 'Longo', ponytail: 'Rabo de cavalo', bun: 'Coque', curly: 'Cacheado', bald: 'Careca' },
+  face: { smile: 'Sorriso', calm: 'Sereno', lashes: 'Cílios', beard: 'Barba', mustache: 'Bigode', stubble: 'Barba rala', freckles: 'Sardas' },
+  top: { tshirt: 'Camiseta', polo: 'Polo', hoodie: 'Moletom', social: 'Camisa social', blazer: 'Blazer + gravata', sweater: 'Suéter' },
+  legwear: { jeans: 'Jeans', social: 'Social', shorts: 'Bermuda', skirt: 'Saia' },
+  accessory: { none: 'Nenhum', glasses: 'Óculos', sunglasses: 'Óculos escuros', headphones: 'Headphone', cap: 'Boné', beanie: 'Gorro' },
 };
 let cz = null;
 
@@ -1348,8 +1351,8 @@ function initCustomizerRenderer() {
   ring.rotation.x = Math.PI / 2; ring.position.y = 0.0;
   sc.add(ring);
   const pc = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
-  pc.position.set(0, 1.35, 5.2);
-  pc.lookAt(0, 0.62, 0);
+  pc.position.set(0, 1.15, 5.6);
+  pc.lookAt(0, 0.8, 0);
   const avatar = new Avatar(S.me?.avatar || randomAvatar());
   sc.add(avatar.root);
   let drag = null, spin = 0.5;
@@ -1505,7 +1508,7 @@ async function enterOffice() {
     $('#demoBanner').hidden = S.driver !== 'tmp';
     cam.mode = 'follow';
     cam.follow = 0.6;
-    cam.zoomGoal = innerWidth < 860 ? 1.3 : 1.65;
+    cam.zoomGoal = innerWidth < 860 ? 1.5 : 1.9;
     if (innerWidth > 1200) $('#hud').classList.add('panel-open');
     refreshDesks();
     renderDock();
@@ -1567,6 +1570,8 @@ function frame(now) {
 async function boot() {
   const bar = $('#loaderText');
   try { await Promise.race([document.fonts.load('800 40px "Plus Jakarta Sans"'), new Promise((r) => setTimeout(r, 1500))]); } catch { /* */ }
+  bar.textContent = 'Chamando a equipe…';
+  try { await loadCharacter(); } catch (e) { console.error(e); bar.textContent = 'Não foi possível carregar os personagens 😕'; return; }
   bar.textContent = 'Arrumando as mesas…';
   await new Promise((r) => setTimeout(r, 30));
   office = buildOffice(scene);

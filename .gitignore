@@ -4,3 +4,4 @@ data/*.json
 data/*.tmp
 .vercel
 .env*
+dev/

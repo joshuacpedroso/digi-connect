@@ -84,25 +84,34 @@ export const PROXIMITY = { full: 2.2, max: 4.6 };
 
 // Opções de personalização dos avatares (o servidor valida contra estas listas).
 export const AVATAR_OPTIONS = {
-  skin: ['#ffdfc4', '#f6c9a5', '#e8b08a', '#c98e63', '#9a6440', '#6b4428'],
-  hairStyle: ['short', 'long', 'bun', 'curly', 'mohawk', 'bald'],
-  hairColor: ['#2b2120', '#5a3825', '#a5672f', '#e8c170', '#d9534f', '#7c5cff', '#2c6bed', '#f2f2f2'],
-  shirt: ['#2477ff', '#7c5cff', '#ff6b8b', '#ffb547', '#22c58b', '#1fb6d6', '#ff7a45', '#2b3446', '#f4f4f6', '#e64980'],
-  pants: ['#26324a', '#3d4b6b', '#5b4636', '#2d2d2d', '#8a9bb5'],
-  accessory: ['none', 'glasses', 'headphones', 'cap', 'beanie'],
+  skin: ['#f9dcc6', '#f1c3a1', '#e0a47c', '#c4835a', '#94603d', '#5e3a26'],
+  hairStyle: ['short', 'fringe', 'buzz', 'long', 'ponytail', 'bun', 'curly', 'bald'],
+  hairColor: ['#1f1715', '#4a2c1d', '#8a5530', '#c99a5b', '#e8d29a', '#b23a2e', '#6d4bd6', '#9aa3ad'],
+  face: ['smile', 'calm', 'lashes', 'beard', 'mustache', 'stubble', 'freckles'],
+  top: ['tshirt', 'polo', 'hoodie', 'social', 'blazer', 'sweater'],
+  shirt: ['#2f7bff', '#7c5cff', '#ff6b8b', '#ffb547', '#22c58b', '#1fb6d6', '#ff7a45', '#2b3446', '#f4f4f6', '#c2263f'],
+  legwear: ['jeans', 'social', 'shorts', 'skirt'],
+  pants: ['#2d4a7a', '#26324a', '#3a3a40', '#6b5a48', '#c8b89a', '#8a9bb5'],
+  shoes: ['#f4f4f6', '#1f2229', '#7a4a2a', '#2f7bff', '#ff5d6e'],
+  accessory: ['none', 'glasses', 'sunglasses', 'headphones', 'cap', 'beanie'],
 };
 
 export function randomAvatar(seed = Math.random().toString()) {
-  let h = 0;
-  for (const c of seed) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  const pick = (arr, salt) => arr[(h >>> salt) % arr.length];
+  let h = 2166136261;
+  for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
+  const rnd = () => { h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0; h = Math.imul(h ^ (h >>> 13), 3266489909) >>> 0; return ((h ^= h >>> 16) >>> 0) / 4294967296; };
+  const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
   return {
-    skin: pick(AVATAR_OPTIONS.skin, 1),
-    hairStyle: pick(AVATAR_OPTIONS.hairStyle.slice(0, 5), 3),
-    hairColor: pick(AVATAR_OPTIONS.hairColor, 5),
-    shirt: pick(AVATAR_OPTIONS.shirt, 7),
-    pants: pick(AVATAR_OPTIONS.pants, 9),
-    accessory: pick(AVATAR_OPTIONS.accessory, 11),
+    skin: pick(AVATAR_OPTIONS.skin),
+    hairStyle: pick(AVATAR_OPTIONS.hairStyle.slice(0, 7)),
+    hairColor: pick(AVATAR_OPTIONS.hairColor.slice(0, 6)),
+    face: pick(AVATAR_OPTIONS.face),
+    top: pick(AVATAR_OPTIONS.top),
+    shirt: pick(AVATAR_OPTIONS.shirt),
+    legwear: pick(['jeans', 'jeans', 'social', 'social', 'shorts', 'skirt']),
+    pants: pick(AVATAR_OPTIONS.pants),
+    shoes: pick(AVATAR_OPTIONS.shoes),
+    accessory: rnd() < 0.55 ? 'none' : pick(AVATAR_OPTIONS.accessory.slice(1)),
   };
 }
 
