@@ -11,7 +11,9 @@ import { PeerMesh } from './rtc.js';
 import { createEditor } from './editor.js';
 import { api, beacon } from './api.js';
 import { icons } from './icons.js';
-import { SPAWN, WORLD, ZONES, PROXIMITY, AVATAR_OPTIONS, CHARACTERS, zoneAt, randomAvatar, defaultLayout, desksOf } from '../shared/layout.js';
+import { SPAWN, WORLD, ZONES, PROXIMITY, zoneAt, defaultLayout, desksOf } from '../shared/layout.js';
+import { randomAvatar, sanitizeAvatar, FACE, FACE_SHAPES, BODY, HAIR, BEARD, BROWS, EYES, TOPS, BOTTOMS, SHOES, HATS, ACCESSORIES, SKIN_TONES, HAIR_COLORS, LIP_COLORS } from '../shared/avatar.js';
+import { avatarThumb, cachedThumb, thumbKey } from './three/thumbs.js';
 
 // ============================================================ utilidades
 const $ = (s, el = document) => el.querySelector(s);
@@ -31,10 +33,13 @@ function toast(msg, ms = 2800) {
   toast.t = setTimeout(() => t.classList.remove('show'), ms);
 }
 
+const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
 function avatarChip(user, cls = '') {
-  const a = user?.avatar?.character ? user.avatar : randomAvatar(user?.id || 'x');
+  const a = user?.avatar?.v === 2 ? user.avatar : randomAvatar(user?.id || 'x');
   const st = user?.status ? `<i class="st dot ${statusOf(user.status).cls}"></i>` : '';
-  return `<span class="p-avatar ${cls}"><img src="/avatars/thumbs/${a.character}.webp" alt="" loading="lazy" />${st}</span>`;
+  const url = cachedThumb(a);
+  if (!url) avatarThumb(a);
+  return `<span class="p-avatar ${cls}" style="--skin:${esc(a.skin)}"><img src="${url || BLANK}" data-av="${thumbKey(a)}" alt="" />${st}</span>`;
 }
 
 // ícones nos botões
@@ -231,7 +236,10 @@ function sit(seatId) {
   me.ry = seat.face;
   sendPos(true);
   renderDock();
-  if (seat.kind === 'desk' && S.desks[seatId] === S.me.id) toast('Você sentou na sua mesa ✨');
+  if (seat.kind === 'desk') {
+    toast(S.desks[seatId] === S.me.id ? 'Você sentou na sua mesa ✨ Aqui é seu espaço: só conversa quem chegar pertinho' : 'Mesa é espaço próprio 🤫 Só conversa quem chegar pertinho', 4200);
+  }
+  gateMedia();
 }
 
 function standUp(silent = false) {
@@ -485,6 +493,11 @@ function proximity(r) {
   const zr = zoneAt(r.pos.x, r.pos.z);
   if (zm.private || zr.private) return zm.id === zr.id ? 1 : 0;
   const d = Math.hypot(r.pos.x - me.pos.x, r.pos.z - me.pos.z);
+  // mesas: cada mesa é um espaço próprio. Sentados em mesas diferentes não se ouvem;
+  // quem está em pé só fala com quem está na mesa se chegar perto (entrar no espaço da mesa).
+  const meDesk = seatMap.get(me.seat)?.kind === 'desk', rDesk = seatMap.get(r.seat)?.kind === 'desk';
+  if (meDesk && rDesk) return 0;
+  if (meDesk || rDesk) return d <= PROXIMITY.desk ? 1 : d >= PROXIMITY.deskMax ? 0 : 1 - (d - PROXIMITY.desk) / (PROXIMITY.deskMax - PROXIMITY.desk);
   if (d <= PROXIMITY.full) return 1;
   if (d >= PROXIMITY.max) return 0;
   return 1 - (d - PROXIMITY.full) / (PROXIMITY.max - PROXIMITY.full);
@@ -1321,7 +1334,8 @@ mini.addEventListener('click', (e) => {
 
 // ============================================================ figurantes da tela inicial
 const npcs = [];
-const NPC_CHARS = ['Business_Female_01', 'Business_Male_01', 'Female_Adult_12', 'Male_Adult_04', 'Business_Female_04', 'Business_Male_05', 'Female_Adult_08', 'Male_Adult_09'];
+const NPC_SEEDS = ['ana', 'joao', 'bia', 'leo', 'duda', 'rafa', 'gabi', 'theo', 'nina', 'caio'];
+const npcAvatar = (i) => randomAvatar(`npc-${NPC_SEEDS[i % NPC_SEEDS.length]}`, i % 2);
 function spawnNpcs() {
   const names = ['ana', 'joão', 'bia', 'leo', 'duda', 'rafa', 'gabi', 'theo', 'nina', 'caio', 'lia', 'enzo'];
   const all = [...seatMap.values()];
@@ -1331,15 +1345,15 @@ function spawnNpcs() {
     ...all.filter((s) => s.kind === 'chair' && zoneAt(s.x, s.z).id === 'meeting').slice(1, 3),
     ...all.filter((s) => s.kind === 'stool').slice(1, 2),
   ];
-  pick.forEach((s, i) => {
-    const a = new Avatar({ character: NPC_CHARS[i % NPC_CHARS.length], accessory: 'none' });
+  pick.slice(0, lowPower ? 3 : 99).forEach((s, i) => {
+    const a = new Avatar(npcAvatar(i));
     a.root.position.set(s.x, 0, s.z);
     a.root.rotation.y = s.face;
     scene.add(a.root);
     npcs.push({ a, seat: s, pos: new THREE.Vector3(s.x, 0, s.z), ry: s.face, path: [] });
   });
-  [[-3, 6], [6, 1], [-12, 4], [13, 8.5]].forEach(([x, z], i) => {
-    const a = new Avatar({ character: NPC_CHARS[(i + 5) % NPC_CHARS.length], accessory: 'none' });
+  [[-3, 6], [6, 1], [-12, 4], [13, 8.5]].slice(0, lowPower ? 1 : 4).forEach(([x, z], i) => {
+    const a = new Avatar(npcAvatar(i + 5));
     a.root.position.set(x, 0, z);
     scene.add(a.root);
     npcs.push({ a, seat: null, pos: new THREE.Vector3(x, 0, z), ry: 0, path: [], wait: Math.random() * 2 });
@@ -1400,11 +1414,9 @@ function updateCamera(dt) {
   if (Math.abs(camera.zoom - cam.zoom) > 1e-4) { camera.zoom = cam.zoom; camera.updateProjectionMatrix(); }
 }
 
-// ============================================================ customização do avatar
-const LABELS = {
-  accessory: { none: 'Nenhum', glasses: 'Óculos', sunglasses: 'Óculos escuros', headphones: 'Headphone' },
-};
+// ============================================================ criador de personagem (estilo GTA)
 let cz = null;
+const CZ_PRESETS = ['p-lucas', 'p-marina', 'p-kenji', 'p-aisha', 'p-rafael', 'p-camila', 'p-otavio', 'p-yasmin'].map((s, i) => randomAvatar(s, (i + 1) % 2));
 
 function initCustomizerRenderer() {
   const c = $('#czCanvas');
@@ -1414,78 +1426,181 @@ function initCustomizerRenderer() {
   r.shadowMap.enabled = true;
   const sc = new THREE.Scene();
   sc.environment = scene.environment;
-  sc.environmentIntensity = 0.5;
-  sc.add(new THREE.HemisphereLight('#eef5ff', '#5a6a9a', 1.4));
-  const d = new THREE.DirectionalLight('#fff0d8', 2.4);
-  d.position.set(2, 5, 4); d.castShadow = true; d.shadow.mapSize.set(1024, 1024);
-  sc.add(d);
-  const rim = new THREE.DirectionalLight('#7cc0ff', 1.6);
-  rim.position.set(-3, 2, -3);
+  sc.environmentIntensity = 0.55;
+  sc.add(new THREE.HemisphereLight('#eef5ff', '#6a5a4a', 1.1));
+  const key = new THREE.DirectionalLight('#fff0dc', 2.6);
+  key.position.set(1.6, 3.2, 3.4); key.castShadow = true; key.shadow.mapSize.set(1024, 1024);
+  key.shadow.camera.left = key.shadow.camera.bottom = -1.2; key.shadow.camera.right = key.shadow.camera.top = 1.2;
+  key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02;
+  sc.add(key);
+  const fill = new THREE.DirectionalLight('#d8e6ff', 0.7);
+  fill.position.set(-2.5, 1.6, 2.2);
+  sc.add(fill);
+  const rim = new THREE.DirectionalLight('#7cc0ff', 2.0);
+  rim.position.set(-2, 2.4, -3);
   sc.add(rim);
-  const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.82, 0.16, 48), new THREE.MeshStandardMaterial({ color: '#2a4a8f', roughness: 0.4 }));
+  const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.82, 0.16, 48), new THREE.MeshStandardMaterial({ color: '#22345e', roughness: 0.35, metalness: 0.2 }));
   ped.position.y = -0.08; ped.receiveShadow = true;
   sc.add(ped);
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.79, 0.015, 8, 64), new THREE.MeshBasicMaterial({ color: '#5aa8ff' }));
-  ring.rotation.x = Math.PI / 2; ring.position.y = 0.0;
+  ring.rotation.x = Math.PI / 2;
   sc.add(ring);
-  const pc = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
-  pc.position.set(0, 1.15, 5.6);
-  pc.lookAt(0, 0.8, 0);
+  const pc = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
   const avatar = new Avatar(S.me?.avatar || randomAvatar());
   sc.add(avatar.root);
-  let drag = null, spin = 0.5;
-  c.addEventListener('pointerdown', (e) => { drag = e.clientX; c.setPointerCapture(e.pointerId); });
+  let drag = null, spin = 0;
+  c.addEventListener('pointerdown', (e) => { drag = e.clientX; c.setPointerCapture(e.pointerId); cz.idle = 0; });
   c.addEventListener('pointermove', (e) => { if (drag !== null) { spin += (e.clientX - drag) * 0.012; drag = e.clientX; } });
   c.addEventListener('pointerup', () => { drag = null; });
-  cz = { renderer: r, scene: sc, camera: pc, avatar, cfg: null, get spin() { return spin; }, set spin(v) { spin = v; }, dragging: () => drag !== null };
+  c.addEventListener('wheel', (e) => { e.preventDefault(); setCzView(e.deltaY < 0 ? 'face' : 'body'); }, { passive: false });
+  cz = {
+    renderer: r, scene: sc, camera: pc, avatar, cfg: null, tab: 'heritage', view: 'body', idle: 0,
+    camPos: new THREE.Vector3(0, 1, 4.6), camLook: new THREE.Vector3(0, 0.82, 0), fov: 30,
+    get spin() { return spin; }, set spin(v) { spin = v; }, dragging: () => drag !== null,
+  };
 }
 
-let czFilter = 'all';
-function renderCustomizerOptions() {
-  for (const group of $$('.cz-group[data-key]')) {
-    const key = group.dataset.key;
-    const box = $('.swatches, .chips', group);
-    box.innerHTML = AVATAR_OPTIONS[key].map((v) => `<button class="chip ${cz.cfg[key] === v ? 'on' : ''}" data-v="${v}">${LABELS[key]?.[v] || v}</button>`).join('');
+function setCzView(v) {
+  cz.view = v;
+  $$('#czView .chip').forEach((b) => b.classList.toggle('on', b.dataset.view === v));
+}
+$('#czView').addEventListener('click', (e) => { const b = e.target.closest('[data-view]'); if (b) setCzView(b.dataset.view); });
+
+const pct = (v) => Math.round(v * 100);
+const czSlider = (path, label, v, { min = -1, max = 1, fmt } = {}) => `<label class="sl"><span>${label}</span><input type="range" min="${min * 100}" max="${max * 100}" value="${pct(v)}" data-path="${path}" style="--p:${((v - min) / (max - min)) * 100}%" /><output>${fmt ? fmt(v) : pct(v)}</output></label>`;
+const czChips = (path, list, cur, cls = '') => `<div class="chips ${cls}">${list.map((o) => `<button class="chip ${o.id === cur ? 'on' : ''}" data-path="${path}" data-v="${o.id}">${o.label}</button>`).join('')}</div>`;
+const czSwatches = (path, colors, cur, { custom = true, labels } = {}) => `<div class="swatches">${colors.map((c, i) => c === 'none'
+  ? `<button class="sw none ${cur === 'none' ? 'on' : ''}" data-path="${path}" data-v="none" title="Nenhum">∅</button>`
+  : `<button class="sw ${c === cur ? 'on' : ''}" style="--c:${c}" data-path="${path}" data-v="${c}" title="${labels?.[i] || c}"></button>`).join('')}${custom ? `<label class="sw custom" title="Outra cor"><input type="color" data-path="${path}" value="${/^#/.test(cur) ? cur : '#888888'}" /></label>` : ''}</div>`;
+const czGroup = (title, body, open = true) => `<details class="cz-sec" ${open ? 'open' : ''}><summary>${title}</summary><div class="cz-sec-body">${body}</div></details>`;
+const ageYears = (v) => `${Math.round(25 + v * 45)} anos`;
+
+function renderCzPanel() {
+  const a = cz.cfg;
+  const tab = cz.tab;
+  $$('#czTabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  let h = '';
+  if (tab === 'heritage') {
+    h += czGroup('Modelos prontos', `<div class="cz-presets">${CZ_PRESETS.map((p, i) => `<button class="preset" data-preset="${i}"><img src="${cachedThumb(p) || BLANK}" data-av="${thumbKey(p)}" alt="" /></button>`).join('')}</div>`);
+    CZ_PRESETS.forEach((p) => avatarThumb(p));
+    h += czGroup('Sexo', `${czChips('sexChip', [{ id: 'F', label: '♀ Feminino' }, { id: 'M', label: '♂ Masculino' }], a.sex < 0.5 ? 'F' : 'M')}${czSlider('sex', 'Traços femininos ↔ masculinos', a.sex, { min: 0 })}`);
+    h += czGroup('Herança', ['Africana', 'Asiática', 'Europeia'].map((l, i) => czSlider(`anc.${i}`, l, a.anc[i], { min: 0 })).join(''));
+    h += czGroup('Tom de pele', czSwatches('skin', SKIN_TONES, a.skin));
+    h += czGroup('Olhos', czSwatches('eyes', EYES.map((e) => e.color), EYES.find((e) => e.id === a.eyes)?.color, { custom: false, labels: EYES.map((e) => e.label) }));
+  } else if (tab === 'face') {
+    h += czGroup('Formato do rosto', czChips('shape', FACE_SHAPES, a.shape));
+    for (const g of FACE) h += czGroup(g.group, g.items.map((s) => czSlider(`face.${s.k}`, s.label, a.face[s.k], { min: s.one ? 0 : -1 })).join(''), g.group === 'Rosto');
+  } else if (tab === 'body') {
+    const macro = BODY.filter((b) => !b.pos && (!b.female || a.sex < 0.5));
+    h += czGroup('Físico', macro.map((b) => czSlider(b.k, b.label, a[b.k], { min: 0, fmt: b.k === 'age' ? ageYears : undefined })).join(''));
+    h += czGroup('Formas', BODY.filter((b) => b.pos).map((b) => czSlider(`face.${b.k}`, b.label, a.face[b.k])).join(''));
+  } else if (tab === 'hair') {
+    h += czGroup('Cabelo', czChips('hair', HAIR, a.hair, 'grid'));
+    h += czGroup('Cor do cabelo', czSwatches('hairColor', HAIR_COLORS, a.hairColor));
+    h += czGroup('Sobrancelhas', czChips('brows', BROWS, a.brows));
+    h += czGroup('Barba', czChips('beard', BEARD, a.beard));
+    h += czGroup('Batom', czSwatches('lips', LIP_COLORS, a.lips));
+  } else if (tab === 'clothes') {
+    h += czGroup('Conjuntos e vestidos', czChips('top', TOPS.filter((t) => t.full), a.top, 'grid'));
+    h += czGroup('Parte de cima', czChips('top', TOPS.filter((t) => !t.full), a.top, 'grid'));
+    h += czGroup('Parte de baixo', a.bottom ? czChips('bottom', BOTTOMS, a.bottom) : '<p class="cz-note">O conjunto escolhido já inclui a parte de baixo.</p>');
+    h += czGroup('Calçados', czChips('shoes', SHOES, a.shoes, 'grid'));
+    h += czGroup('Chapéu', czChips('hat', HATS, a.hat));
+    h += czGroup('Acessório', czChips('acc', ACCESSORIES, a.acc));
   }
-  const list = CHARACTERS.filter((c) => czFilter === 'all' || (czFilter === 'B' ? c.business : c.g === czFilter));
-  $('#charGrid').innerHTML = list.map((c) => `<button class="char ${cz.cfg.character === c.id ? 'on' : ''}" data-char="${c.id}"><img src="/avatars/thumbs/${c.id}-full.webp" alt="" loading="lazy" /></button>`).join('');
-  $$('#czFilter .chip').forEach((b) => b.classList.toggle('on', b.dataset.f === czFilter));
+  const panel = $('#czPanel');
+  const top = panel.scrollTop;
+  panel.innerHTML = h;
+  panel.scrollTop = top;
 }
 
-$('#czFilter').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; czFilter = b.dataset.f; renderCustomizerOptions(); });
-$('#charGrid').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-char]');
+function setCzPath(path, v) {
+  const a = cz.cfg;
+  if (path === 'sexChip') {
+    a.sex = v === 'M' ? 1 : 0;
+    const male = a.sex >= 0.5;
+    if (male && /^(female_|F_Dress|Cocktail|TubeDress)/.test(a.top)) { a.top = 'male_casualsuit02'; }
+    if (!male && /^male_/.test(a.top)) { a.top = 'female_casualsuit01'; }
+    if (!male) a.beard = 'none';
+  } else if (path.startsWith('anc.')) {
+    const i = +path.slice(4);
+    const rest = [0, 1, 2].filter((k) => k !== i);
+    const others = rest.reduce((s, k) => s + a.anc[k], 0);
+    a.anc[i] = v;
+    rest.forEach((k) => { a.anc[k] = others > 0.001 ? (a.anc[k] / others) * (1 - v) : (1 - v) / 2; });
+  } else if (path.startsWith('face.')) {
+    a.face[path.slice(5)] = v;
+  } else if (path === 'eyes') {
+    a.eyes = EYES.find((e) => e.color === v)?.id || a.eyes;
+  } else if (path === 'top') {
+    a.top = v;
+    a.bottom = TOPS.find((t) => t.id === v)?.full ? null : (a.bottom || 'Tightjeans');
+  } else {
+    a[path] = v;
+  }
+  if (path === 'sexChip' || path === 'top' || path === 'eyes' || ['hair', 'brows', 'beard', 'shoes', 'hat', 'acc', 'bottom', 'shape', 'lips', 'skin', 'hairColor'].includes(path)) renderCzPanel();
+  applyCz();
+}
+
+function applyCz() {
+  const t = performance.now();
+  const p = cz.avatar.setConfig(cz.cfg);
+  clearTimeout(cz.loadT);
+  cz.loadT = setTimeout(() => { $('#czLoading').hidden = false; }, 350);
+  p.finally(() => { clearTimeout(cz.loadT); $('#czLoading').hidden = true; cz.buildMs = performance.now() - t; });
+}
+
+$('#czTabs').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-tab]');
   if (!b) return;
-  cz.cfg.character = b.dataset.char;
-  cz.avatar.setConfig(cz.cfg);
-  setTimeout(() => cz.avatar.emote(), 600);
-  renderCustomizerOptions();
+  cz.tab = b.dataset.tab;
+  $('#czPanel').scrollTop = 0;
+  renderCzPanel();
+  setCzView(cz.tab === 'face' || cz.tab === 'heritage' || cz.tab === 'hair' ? 'face' : 'body');
+});
+$('#czPanel').addEventListener('input', (e) => {
+  const el = e.target;
+  if (!el.dataset.path) return;
+  if (el.type === 'range') {
+    const v = +el.value / 100;
+    const min = +el.min / 100, max = +el.max / 100;
+    el.style.setProperty('--p', `${((v - min) / (max - min)) * 100}%`);
+    el.nextElementSibling.textContent = el.dataset.path === 'age' ? ageYears(v) : el.value;
+    setCzPath(el.dataset.path, v);
+    if (el.dataset.path.startsWith('anc.')) $$('#czPanel input[data-path^="anc."]').forEach((x) => { if (x !== el) { const k = +x.dataset.path.slice(4); x.value = pct(cz.cfg.anc[k]); x.style.setProperty('--p', `${pct(cz.cfg.anc[k])}%`); x.nextElementSibling.textContent = x.value; } });
+  } else if (el.type === 'color') setCzPath(el.dataset.path, el.value);
+});
+$('#czPanel').addEventListener('dblclick', (e) => {
+  const el = e.target.closest('input[type=range]');
+  if (!el || !el.dataset.path.startsWith('face.')) return;
+  el.value = 0;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+$('#czPanel').addEventListener('click', (e) => {
+  const pre = e.target.closest('[data-preset]');
+  if (pre) { cz.cfg = structuredClone(CZ_PRESETS[+pre.dataset.preset]); renderCzPanel(); applyCz(); setTimeout(() => cz.avatar.emote(), 300); return; }
+  const b = e.target.closest('button[data-path]');
+  if (b) setCzPath(b.dataset.path, b.dataset.v);
 });
 
 function openCustomizer(first) {
   if (!cz) initCustomizerRenderer();
-  cz.cfg = { ...(S.me?.avatar?.character ? S.me.avatar : randomAvatar(S.me?.id)) };
-  cz.avatar.setConfig(cz.cfg);
+  cz.cfg = structuredClone(sanitizeAvatar(S.me?.avatar, S.me?.id));
   cz.first = first;
+  cz.tab = 'heritage';
+  applyCz();
+  setCzView('face');
   $('#czName').value = S.me?.name || '';
   $('#czNameTag').textContent = S.me?.name || 'Você';
-  $('#czSave').innerHTML = first ? 'Entrar no escritório <span>→</span>' : 'Salvar avatar';
+  $('#czSave').innerHTML = first ? 'Entrar no escritório <span>→</span>' : 'Salvar personagem';
   $('#czCancel').hidden = first;
-  renderCustomizerOptions();
+  renderCzPanel();
   $('#customizer').hidden = false;
-  setTimeout(() => cz.avatar.emote(), 400);
+  setTimeout(() => cz.avatar.emote(), 600);
 }
 
-$('#customizer').addEventListener('click', (e) => {
-  const b = e.target.closest('.cz-group[data-key] [data-v]');
-  if (!b) return;
-  const key = b.closest('.cz-group').dataset.key;
-  cz.cfg[key] = b.dataset.v;
-  cz.avatar.setConfig(cz.cfg);
-  renderCustomizerOptions();
-});
 $('#czName').addEventListener('input', (e) => { $('#czNameTag').textContent = e.target.value || 'Você'; });
-$('#czRandom').onclick = () => { cz.cfg = randomAvatar(Math.random().toString()); cz.avatar.setConfig(cz.cfg); cz.avatar.emote(); renderCustomizerOptions(); };
+$('#czRandom').onclick = () => { cz.cfg = structuredClone(randomAvatar(Math.random().toString())); applyCz(); setTimeout(() => cz.avatar.emote(), 300); renderCzPanel(); };
 $('#czCancel').onclick = () => { $('#customizer').hidden = true; };
 $('#czSave').onclick = async () => {
   const btn = $('#czSave');
@@ -1500,11 +1615,12 @@ $('#czSave').onclick = async () => {
       if (me.tag) me.tag._key = '';
       renderDock();
       scheduleSync(100, true);
-      toast('Avatar atualizado ✨');
+      toast('Personagem atualizado ✨');
     } else enterOffice();
   } catch (e) { toast(e.message); } finally { btn.disabled = false; }
 };
 
+const _czV = new THREE.Vector3();
 function renderCustomizer(dt) {
   if (!cz || $('#customizer').hidden) return;
   const c = cz.renderer.domElement;
@@ -1514,9 +1630,20 @@ function renderCustomizer(dt) {
     cz.camera.aspect = w / h;
     cz.camera.updateProjectionMatrix();
   }
-  if (!cz.dragging()) cz.spin += dt * 0.5;
-  cz.avatar.root.rotation.y = Math.sin(cz.spin) * 0.7;
-  cz.avatar.update(dt, {});
+  const av = cz.avatar;
+  // câmera: rosto (close) ou corpo inteiro, acompanhando a altura do personagem
+  const info = av.info;
+  const eyeY = info ? (info.eyes.l.y - info.minY) * av.scale : 1.45;
+  const tall = info ? (info.headTop - info.minY) * av.scale : 1.6;
+  const narrow = w / h < 0.8;
+  if (cz.view === 'face') { cz.camPos.lerp(_czV.set(0, eyeY - 0.02, narrow ? 1.25 : 1.05), 1 - Math.exp(-dt * 6)); cz.camLook.lerp(_czV.set(0, eyeY - 0.05, 0), 1 - Math.exp(-dt * 6)); }
+  else { cz.camPos.lerp(_czV.set(0, tall * 0.6, narrow ? 5.4 : 4.4), 1 - Math.exp(-dt * 6)); cz.camLook.lerp(_czV.set(0, tall * 0.5, 0), 1 - Math.exp(-dt * 6)); }
+  cz.camera.position.copy(cz.camPos);
+  cz.camera.lookAt(cz.camLook);
+  cz.idle += dt;
+  if (!cz.dragging() && cz.idle > 4) cz.spin += dt * 0.35;
+  av.root.rotation.y = cz.view === 'face' ? Math.sin(cz.spin) * 0.45 : Math.sin(cz.spin) * 0.8;
+  av.update(dt, {});
   cz.renderer.render(cz.scene, cz.camera);
 }
 
@@ -1690,7 +1817,7 @@ async function boot() {
 boot();
 
 if (import.meta.env.DEV) {
-  window.__digi = { S, me, remotes, get mesh() { return mesh; }, seatMap, cam, media, renderer, scene, camera };
+  window.__digi = { S, me, remotes, get mesh() { return mesh; }, seatMap, cam, media, renderer, scene, camera, get cz() { return cz; }, sit, standUp };
   window.__project = (x, y, z) => project({ x, z }, y);
   window.__goToFirst = () => goToPerson([...remotes.keys()][0]);
 }

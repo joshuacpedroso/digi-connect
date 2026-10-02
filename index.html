@@ -69,22 +69,30 @@
     <div class="live-tag glass"><i></i>Prévia ao vivo do escritório</div>
   </section>
 
-  <!-- customização do avatar -->
+  <!-- criador de personagem (estilo GTA) -->
   <section id="customizer" class="modal" hidden>
     <div class="cz-card glass">
       <div class="cz-preview">
         <canvas id="czCanvas"></canvas>
+        <div class="cz-view chips" id="czView"><button class="chip" data-view="face">🙂 Rosto</button><button class="chip on" data-view="body">🧍 Corpo</button></div>
         <div class="cz-name-tag" id="czNameTag">Você</div>
+        <div class="cz-loading" id="czLoading" hidden><i></i>Montando seu personagem…</div>
+        <div class="cz-hint">Arraste para girar</div>
       </div>
       <div class="cz-options">
-        <span class="eyebrow">Seu avatar</span>
-        <h2>Escolha seu avatar ✨</h2>
-        <label class="cz-name">Nome de exibição<input id="czName" maxlength="40" /></label>
-        <div class="cz-group"><b>Escolha seu personagem</b>
-          <div class="chips cz-filter" id="czFilter"><button class="chip on" data-f="all">Todos</button><button class="chip" data-f="F">Mulheres</button><button class="chip" data-f="M">Homens</button><button class="chip" data-f="B">Executivos</button></div>
-          <div class="char-grid" id="charGrid"></div>
+        <div class="cz-head">
+          <span class="eyebrow">Criador de personagem</span>
+          <h2>Crie seu personagem ✨</h2>
         </div>
-        <div class="cz-group" data-key="accessory"><b>Acessório</b><div class="chips"></div></div>
+        <label class="cz-name">Nome de exibição<input id="czName" maxlength="40" /></label>
+        <nav class="cz-tabs" id="czTabs">
+          <button data-tab="heritage" class="on"><span>🧬</span>Herança</button>
+          <button data-tab="face"><span>👃</span>Rosto</button>
+          <button data-tab="body"><span>💪</span>Corpo</button>
+          <button data-tab="hair"><span>💇</span>Visual</button>
+          <button data-tab="clothes"><span>👕</span>Roupas</button>
+        </nav>
+        <div class="cz-panel" id="czPanel"></div>
         <div class="cz-actions">
           <button class="btn-ghost" id="czRandom">🎲 Aleatório</button>
           <button class="btn-ghost" id="czCancel" hidden>Cancelar</button>

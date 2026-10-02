@@ -154,42 +154,8 @@ export function desksOf(items) {
   });
 }
 
-export const PROXIMITY = { full: 2.2, max: 4.6 };
+// desk/deskMax: raio do "espaço da mesa" (quem está sentado numa mesa só ouve quem chega bem perto)
+export const PROXIMITY = { full: 2.2, max: 4.6, desk: 1.25, deskMax: 1.6 };
 
-// Personagens realistas (Microsoft Rocketbox, licença MIT) — arquivos em public/avatars/<id>.glb
-export const CHARACTERS = [
-  ['Business_Female_01', 'F'], ['Business_Female_02', 'F'], ['Business_Female_03', 'F'], ['Business_Female_04', 'F'],
-  ['Female_Adult_01', 'F'], ['Female_Adult_02', 'F'], ['Female_Adult_05', 'F'], ['Female_Adult_08', 'F'], ['Female_Adult_09', 'F'],
-  ['Female_Adult_11', 'F'], ['Female_Adult_12', 'F'], ['Female_Adult_13', 'F'], ['Female_Adult_15', 'F'], ['Female_Adult_17', 'F'], ['Female_Party_02', 'F'],
-  ['Business_Male_01', 'M'], ['Business_Male_02', 'M'], ['Business_Male_03', 'M'], ['Business_Male_04', 'M'], ['Business_Male_05', 'M'], ['Business_Male_06', 'M'],
-  ['Male_Adult_01', 'M'], ['Male_Adult_02', 'M'], ['Male_Adult_04', 'M'], ['Male_Adult_06', 'M'], ['Male_Adult_08', 'M'], ['Male_Adult_09', 'M'],
-  ['Male_Adult_10', 'M'], ['Male_Adult_12', 'M'], ['Male_Adult_16', 'M'], ['Male_Adult_18', 'M'],
-].map(([id, g]) => ({ id, g, business: id.startsWith('Business') }));
-
-// Opções de personalização dos avatares (o servidor valida contra estas listas).
-export const AVATAR_OPTIONS = {
-  character: CHARACTERS.map((c) => c.id),
-  accessory: ['none', 'glasses', 'sunglasses', 'headphones'],
-};
-
-function hashOf(seed) {
-  let h = 2166136261;
-  for (const c of String(seed)) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
-  return h;
-}
-
-export function randomAvatar(seed = Math.random().toString()) {
-  const h = hashOf(seed);
-  return {
-    character: CHARACTERS[h % CHARACTERS.length].id,
-    accessory: (h >>> 8) % 5 === 0 ? AVATAR_OPTIONS.accessory[1 + ((h >>> 12) % 3)] : 'none',
-  };
-}
-
-export function sanitizeAvatar(input, seed) {
-  const base = randomAvatar(seed || JSON.stringify(input || {}));
-  return {
-    character: AVATAR_OPTIONS.character.includes(input?.character) ? input.character : base.character,
-    accessory: AVATAR_OPTIONS.accessory.includes(input?.accessory) ? input.accessory : 'none',
-  };
-}
+// Personagens: veja shared/avatar.js (criador estilo GTA).
+export { randomAvatar, sanitizeAvatar } from './avatar.js';
