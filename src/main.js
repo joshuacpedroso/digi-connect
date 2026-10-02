@@ -1,13 +1,17 @@
 import './style.css';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { buildOffice } from './three/office.js';
+import { EffectComposer, RenderPass, EffectPass, BloomEffect, SMAAEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
+import { N8AOPostPass } from 'n8ao';
+import { buildStructure } from './three/structure.js';
+import { buildFurniture } from './three/furniture.js';
 import { Avatar, loadCharacter } from './three/human.js';
 import { NavGrid } from './nav.js';
 import { PeerMesh } from './rtc.js';
+import { createEditor } from './editor.js';
 import { api, beacon } from './api.js';
 import { icons } from './icons.js';
-import { DESKS, SEATS, SPAWN, WORLD, ZONES, PROXIMITY, AVATAR_OPTIONS, zoneAt, randomAvatar } from '../shared/layout.js';
+import { SPAWN, WORLD, ZONES, PROXIMITY, AVATAR_OPTIONS, zoneAt, randomAvatar, defaultLayout, desksOf } from '../shared/layout.js';
 
 // ============================================================ utilidades
 const $ = (s, el = document) => el.querySelector(s);
@@ -58,6 +62,14 @@ renderer.toneMappingExposure = 1.04;
 renderer.setClearColor(0x000000, 0);
 
 const scene = new THREE.Scene();
+scene.background = (() => {
+  const c = document.createElement('canvas'); c.width = 4; c.height = 256;
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0, '#c9e3ff'); g.addColorStop(0.45, '#b4cdf7'); g.addColorStop(1, '#a3b3ea');
+  x.fillStyle = g; x.fillRect(0, 0, 4, 256);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.42;
@@ -75,8 +87,31 @@ const fill = new THREE.DirectionalLight('#a9ccff', 0.55);
 fill.position.set(22, 12, -8);
 scene.add(fill);
 
-// Qualidade adaptativa: se o FPS cair, reduz resolução e sombras automaticamente (?q=low força o mínimo).
-const quality = { level: new URLSearchParams(location.search).get('q') === 'low' ? 3 : 0, frames: 0, time: 0 };
+// Pós-produção: oclusão de ambiente (N8AO), brilho (bloom), tone mapping e SMAA.
+let composer = null, aoPass = null;
+function setupComposer() {
+  if (composer) return;
+  renderer.toneMapping = THREE.NoToneMapping;
+  composer = new EffectComposer(renderer, { frameBufferType: THREE.HalfFloatType });
+  composer.addPass(new RenderPass(scene, camera));
+  aoPass = new N8AOPostPass(scene, camera, innerWidth, innerHeight);
+  Object.assign(aoPass.configuration, { aoRadius: 1.1, distanceFalloff: 0.6, intensity: 2.4, aoSamples: 16, denoiseSamples: 8, denoiseRadius: 10, halfRes: false, color: new THREE.Color('#1a1630') });
+  composer.addPass(aoPass);
+  composer.addPass(new EffectPass(camera,
+    new BloomEffect({ luminanceThreshold: 0.92, luminanceSmoothing: 0.2, intensity: 0.55, mipmapBlur: true, radius: 0.55 }),
+    new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }),
+    new SMAAEffect()));
+}
+function dropComposer() {
+  if (!composer) return;
+  composer.dispose();
+  composer = null; aoPass = null;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+}
+
+// Qualidade adaptativa: se o FPS cair, reduz efeitos, resolução e sombras (?q=low força o mínimo).
+const qParam = new URLSearchParams(location.search).get('q');
+const quality = { level: qParam === 'low' ? 3 : 0, locked: qParam === 'high' || qParam === 'low', frames: 0, time: 0 };
 function applyQuality() {
   const L = quality.level;
   renderer.setPixelRatio(L === 0 ? Math.min(devicePixelRatio, lowPower ? 1.5 : 2) : L === 1 ? Math.min(devicePixelRatio, 1.25) : 1);
@@ -87,10 +122,11 @@ function applyQuality() {
     sun.shadow.map = null;
   }
   sun.castShadow = L < 3;
+  if (L <= 1) { setupComposer(); aoPass.configuration.halfRes = L === 1 || lowPower; } else dropComposer();
   resize();
 }
 function trackFps(dt) {
-  if (quality.level >= 3 || document.hidden) return;
+  if (quality.locked || quality.level >= 3 || document.hidden) return;
   quality.frames++;
   quality.time += dt;
   if (quality.time < 3) return;
@@ -109,6 +145,7 @@ const cam = { target: new THREE.Vector3(0, 0, 0), zoom: 0.5, zoomGoal: 0.62, mod
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
+  composer?.setSize(w, h, false);
   const aspect = w / h;
   const view = aspect < 0.8 ? VIEW * 1.35 : VIEW;
   Object.assign(camera, { left: (-view * aspect) / 2, right: (view * aspect) / 2, top: view / 2, bottom: -view / 2 });
@@ -117,10 +154,44 @@ function resize() {
 addEventListener('resize', resize);
 applyQuality();
 
-let office, nav;
+let nav;
+let editor = { active: false, update() {} };
 const seatMap = new Map();
-for (const d of DESKS) seatMap.set(d.id, { id: d.id, x: d.seat.x, z: d.seat.z, face: d.face, h: 0.41, kind: 'desk', desk: d });
-for (const s of SEATS) seatMap.set(s.id, { ...s });
+// Fachada do escritório: estrutura fixa + móveis (layout editável, reconstruído quando muda).
+const office = {
+  structure: null, furniture: null, desks: new Map(), clickables: [], obstacles: [], layoutKey: '',
+  animate(t) { this.structure?.animate(t); this.furniture?.animate(t); },
+};
+
+function disposeTree(root) {
+  root.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
+}
+
+function applyLayout(items, { merge = true, force = false } = {}) {
+  const key = JSON.stringify(items);
+  if (!force && key === office.layoutKey && office.furniture?.merged === merge) return;
+  office.layoutKey = key;
+  S.layout = items;
+  if (office.furniture) {
+    scene.remove(office.furniture.root);
+    disposeTree(office.furniture.root);
+    for (const d of office.desks.values()) d.tagEl?.remove();
+  }
+  const f = buildFurniture(items, { merge });
+  f.merged = merge;
+  scene.add(f.root);
+  office.furniture = f;
+  const infos = new Map(desksOf(items).map((d) => [d.id, d]));
+  office.desks = new Map([...f.desks].map(([id, d]) => [id, { ...d, desk: { ...infos.get(id), x: d.item.x, z: d.item.z } }]));
+  seatMap.clear();
+  for (const st of f.seats.values()) seatMap.set(st.id, { ...st, desk: st.desk ? office.desks.get(st.item)?.desk : null });
+  office.clickables = f.clickables;
+  office.obstacles = [...office.structure.obstacles, ...f.obstacles];
+  nav = new NavGrid(office.obstacles);
+  if (me.seat && !seatMap.has(me.seat)) { me.seat = null; renderDock(); }
+  for (const r of remotes.values()) if (r.seat && !seatMap.has(r.seat)) r.seat = null;
+  if (S.me) refreshDesks();
+}
 const approachOf = (seat) => {
   const front = seat.kind === 'sofa' || seat.kind === 'armchair';
   const k = front ? 0.8 : -0.75;
@@ -537,6 +608,7 @@ function setNet(ok) {
 }
 
 function applyBundle(j) {
+  if (j.layout?.items) { S.savedLayout = j.layout.items; if (!editor.active) applyLayout(j.layout.items); }
   S.users = new Map(j.users.map((u) => [u.id, u]));
   S.desks = j.desks || {};
   S.meetings = j.meetings || [];
@@ -877,6 +949,7 @@ function renderDock() {
   $('#statusLabel').textContent = st.label;
   $$('#statusSeg button').forEach((b) => b.classList.toggle('on', b.dataset.status === S.status));
   $('#meName').textContent = S.me.name;
+  $('#editBtn').hidden = S.me.role !== 'Admin';
   $('#meAvatar').outerHTML = avatarChip(S.me, 'big').replace('<span class="p-avatar', '<span id="meAvatar" class="p-avatar');
 }
 
@@ -1076,6 +1149,7 @@ $('#zoomIn').onclick = () => { cam.zoomGoal = Math.min(3, cam.zoomGoal * 1.2); }
 $('#zoomOut').onclick = () => { cam.zoomGoal = Math.max(0.5, cam.zoomGoal / 1.2); };
 $('#centerBtn').onclick = () => { cam.snap = 0.4; cam.zoomGoal = innerWidth < 860 ? 1.5 : 1.9; };
 $('#avatarBtn').onclick = () => openCustomizer(false);
+$('#editBtn').onclick = () => { if (editor.active) return; if (me.seat) standUp(true); editor.enter(); };
 $('#logoutBtn').onclick = async () => {
   if (!confirm('Sair do escritório?')) return;
   mesh?.closeAll();
@@ -1090,7 +1164,7 @@ function hideHint() { if (!hintHidden) { hintHidden = true; $('#hint').classList
 const typing = () => ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
 addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { closePop(); $('#meetingModal').hidden = true; return; }
-  if (!S.inOffice || typing() || !$('#customizer').hidden) return;
+  if (!S.inOffice || typing() || !$('#customizer').hidden || editor.active) return;
   const k = e.key.toLowerCase();
   if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) { e.preventDefault(); keys.add(k); hideHint(); closePop(); }
   if (e.repeat) return;
@@ -1121,7 +1195,7 @@ function pick(cx, cy) {
 let downAt = null;
 canvas.addEventListener('pointerdown', (e) => { downAt = { x: e.clientX, y: e.clientY, t: performance.now() }; unlockAudio(); });
 canvas.addEventListener('pointerup', (e) => {
-  if (!downAt || !S.inOffice) return;
+  if (!downAt || !S.inOffice || editor.active) return;
   const moved = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y);
   downAt = null;
   if (moved > 8) return;
@@ -1145,7 +1219,7 @@ canvas.addEventListener('wheel', (e) => {
 
 let hoverQueued = null;
 canvas.addEventListener('pointermove', (e) => {
-  if (!S.inOffice || e.pointerType === 'touch') return;
+  if (!S.inOffice || e.pointerType === 'touch' || editor.active) { $('#hoverTip').hidden = true; return; }
   if (hoverQueued) { hoverQueued = e; return; }
   hoverQueued = e;
   requestAnimationFrame(() => {
@@ -1248,18 +1322,23 @@ mini.addEventListener('click', (e) => {
 // ============================================================ figurantes da tela inicial
 const npcs = [];
 function spawnNpcs() {
-  const seats = ['desk-02', 'desk-07', 'desk-11', 'desk-16', 'sofa-1', 'meet-n1', 'meet-s0', 'bar-1'];
-  const names = ['ana', 'joão', 'bia', 'leo', 'duda', 'rafa', 'gabi', 'theo', 'nina', 'caio'];
-  seats.forEach((sid, i) => {
-    const s = seatMap.get(sid);
-    const a = new Avatar(randomAvatar(names[i] + 'digi'));
+  const names = ['ana', 'joão', 'bia', 'leo', 'duda', 'rafa', 'gabi', 'theo', 'nina', 'caio', 'lia', 'enzo'];
+  const all = [...seatMap.values()];
+  const pick = [
+    ...all.filter((s) => s.kind === 'desk').filter((_, i) => i % 4 === 1).slice(0, 5),
+    ...all.filter((s) => s.kind === 'sofa').slice(1, 2),
+    ...all.filter((s) => s.kind === 'chair' && zoneAt(s.x, s.z).id === 'meeting').slice(1, 3),
+    ...all.filter((s) => s.kind === 'stool').slice(1, 2),
+  ];
+  pick.forEach((s, i) => {
+    const a = new Avatar(randomAvatar(names[i % names.length] + 'digi'));
     a.root.position.set(s.x, 0, s.z);
     a.root.rotation.y = s.face;
     scene.add(a.root);
     npcs.push({ a, seat: s, pos: new THREE.Vector3(s.x, 0, s.z), ry: s.face, path: [] });
   });
-  [[-3, 6], [9, -1], [-12, 4]].forEach(([x, z], i) => {
-    const a = new Avatar(randomAvatar(names[i + 7] + 'walk'));
+  [[-3, 6], [6, 1], [-12, 4], [13, 8.5]].forEach(([x, z], i) => {
+    const a = new Avatar(randomAvatar(names[(i + 9) % names.length] + 'walk'));
     a.root.position.set(x, 0, z);
     scene.add(a.root);
     npcs.push({ a, seat: null, pos: new THREE.Vector3(x, 0, z), ry: 0, path: [], wait: Math.random() * 2 });
@@ -1301,6 +1380,8 @@ function updateCamera(dt) {
     cam.target.set(-1 + Math.sin(cam.t * 0.06) * 5, 0, 1 + Math.cos(cam.t * 0.045) * 3);
     if (wide) cam.target.addScaledVector(SCREEN_RIGHT, -Math.min(9, innerWidth / 140));
     cam.zoomGoal = wide ? 0.6 : 0.5;
+  } else if (cam.mode === 'edit') {
+    // o editor controla o alvo da câmera
   } else {
     const k = cam.snap > 0 ? 1 - Math.exp(-dt * 12) : 1 - Math.exp(-dt * cam.follow);
     cam.snap = Math.max(0, (cam.snap || 0) - dt);
@@ -1528,6 +1609,7 @@ async function enterOffice() {
 }
 
 function applyBundleRaw(j) {
+  if (j.layout?.items) { S.savedLayout = j.layout.items; applyLayout(j.layout.items); }
   S.users = new Map(j.users.map((u) => [u.id, u]));
   S.desks = j.desks || {};
   S.meetings = j.meetings || [];
@@ -1558,9 +1640,10 @@ function frame(now) {
     for (const d of office.desks.values()) if (d.mine) d.ringMat.opacity = pulse;
   } else updateNpcs(dt);
   updateRipples(dt);
+  editor.update(dt);
   updateCamera(dt);
   office.animate(now);
-  renderer.render(scene, camera);
+  if (composer) composer.render(dt); else renderer.render(scene, camera);
   updateOverlay();
   renderCustomizer(dt);
   requestAnimationFrame(frame);
@@ -1574,8 +1657,16 @@ async function boot() {
   try { await loadCharacter(); } catch (e) { console.error(e); bar.textContent = 'Não foi possível carregar os personagens 😕'; return; }
   bar.textContent = 'Arrumando as mesas…';
   await new Promise((r) => setTimeout(r, 30));
-  office = buildOffice(scene);
-  nav = new NavGrid(office.obstacles);
+  office.structure = buildStructure(scene);
+  S.savedLayout = defaultLayout();
+  applyLayout(S.savedLayout);
+  editor = createEditor({
+    scene, camera, canvas, office, applyLayout, api, toast, cam,
+    getSaved: () => S.savedLayout,
+    setSaved: (items) => { S.savedLayout = items; scheduleSync(100, true); },
+    onEnter: () => { closePop(); cam.mode = 'edit'; cam.zoomGoal = Math.min(cam.zoomGoal, 1.1); },
+    onExit: () => { cam.mode = 'follow'; cam.snap = 0.5; cam.zoomGoal = innerWidth < 860 ? 1.5 : 1.9; },
+  });
   spawnNpcs();
   requestAnimationFrame(frame);
   let session = null;

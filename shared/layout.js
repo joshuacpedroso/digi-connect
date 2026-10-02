@@ -1,18 +1,41 @@
-// Planta do escritório — compartilhada entre o servidor (seed das mesas) e o cliente (cena 3D).
+// Planta do escritório — compartilhada entre o servidor e o cliente.
 // Unidades em metros. Eixo X: oeste(-) → leste(+). Eixo Z: norte(-) → sul(+).
 // A câmera isométrica olha de sudeste, então as paredes norte e oeste ficam ao fundo.
+// A ESTRUTURA (paredes, salas fixas) é fixa; os MÓVEIS são itens editáveis no editor.
+import { CATALOG, itemSeats } from './catalog.js';
 
 export const WORLD = { minX: -18, maxX: 18, minZ: -12, maxZ: 12 };
 
-// Zonas privadas isolam o áudio: só quem está dentro se escuta (estilo Gather).
+// Salas fixas (estrutura). Zonas privadas isolam o áudio: só quem está dentro se escuta.
+export const ROOMS = [
+  { id: 'valdinei', label: 'Sala do Valdinei', private: true, x0: 4.5, x1: 11, z0: -12, z1: -6.5, floor: '#3b4a6b', sign: { x: 7.75, z: -6.5 } },
+  { id: 'fran', label: 'Sala da Fran', private: true, x0: 11, x1: 18, z0: -12, z1: -6.5, floor: '#6b3b55', sign: { x: 14.5, z: -6.5 } },
+  { id: 'meeting', label: 'Sala de Reunião', private: true, x0: 10.5, x1: 18, z0: -3.5, z1: 3.5, floor: '#34436a', sign: { x: 14.25, z: 3.5 } },
+  { id: 'booth1', label: 'Cabine de Foco 1', private: true, x0: -1, x1: 1.75, z0: -12, z1: -9.2, floor: '#8f84c9' },
+  { id: 'booth2', label: 'Cabine de Foco 2', private: true, x0: 1.75, x1: 4.5, z0: -12, z1: -9.2, floor: '#8f84c9' },
+];
+
+// Paredes de vidro (segmentos [x0, z0, x1, z1]); os vãos são as portas.
+export const GLASS = [
+  // cabines
+  [-1, -9.2, -0.1, -9.2], [0.85, -9.2, 1.75, -9.2], [1.75, -9.2, 2.65, -9.2], [3.6, -9.2, 4.5, -9.2],
+  // Valdinei
+  [4.5, -9.2, 4.5, -6.5], [4.5, -6.5, 9.2, -6.5], [10.4, -6.5, 11, -6.5],
+  // Fran
+  [11, -12, 11, -6.5], [11, -6.5, 11.6, -6.5], [12.8, -6.5, 18, -6.5], [18, -12, 18, -6.5],
+  // reunião
+  [10.5, -3.5, 18, -3.5], [10.5, 3.5, 18, 3.5], [10.5, -3.5, 10.5, -0.65], [10.5, 0.65, 10.5, 3.5], [18, -3.5, 18, 3.5],
+];
+// Divisórias sólidas (acústicas) entre as cabines.
+export const PARTITIONS = [[-1, -12, -1, -9.2], [1.75, -12, 1.75, -9.2], [4.5, -12, 4.5, -9.2]];
+
 export const ZONES = [
-  { id: 'meeting', label: 'Sala de Reunião', private: true, x0: 5, x1: 18, z0: -12, z1: -3 },
-  { id: 'booth1', label: 'Cabine de Foco 1', private: true, x0: -1, x1: 1.5, z0: -12, z1: -9.2 },
-  { id: 'booth2', label: 'Cabine de Foco 2', private: true, x0: 1.5, x1: 4, z0: -12, z1: -9.2 },
-  { id: 'work', label: 'Área de Trabalho', private: false, x0: -18, x1: -1, z0: -12, z1: 3 },
-  { id: 'lounge', label: 'Lounge', private: false, x0: 7, x1: 18, z0: 0, z1: 12 },
-  { id: 'cafe', label: 'Café & Conexões', private: false, x0: -18, x1: -7, z0: 5, z1: 12 },
-  { id: 'reception', label: 'Recepção', private: false, x0: -5, x1: 7, z0: 4, z1: 12 },
+  ...ROOMS,
+  { id: 'work', label: 'Área de Trabalho', private: false, x0: -18, x1: -1.5, z0: -12, z1: 3.5 },
+  { id: 'cafe', label: 'Café & Conexões', private: false, x0: -18, x1: -8, z0: 5, z1: 12 },
+  { id: 'lounge', label: 'Lounge', private: false, x0: 8, x1: 18, z0: 5, z1: 12 },
+  { id: 'reception', label: 'Recepção', private: false, x0: -4, x1: 7, z0: 5.5, z1: 12 },
+  { id: 'games', label: 'Área de Jogos', private: false, x0: -1.5, x1: 10.5, z0: -5.5, z1: 4.5 },
 ];
 
 export function zoneAt(x, z) {
@@ -20,65 +43,116 @@ export function zoneAt(x, z) {
   return { id: 'hall', label: 'Corredor', private: false };
 }
 
-export const SPAWN = { x: 1, z: 6.2 };
-
-// 4 ilhas com 4 mesas cada (duas de frente para as outras).
-const PODS = [
-  { cx: -14, cz: -7.4, team: 'Operações' },
-  { cx: -7.4, cz: -7.4, team: 'Criação' },
-  { cx: -14, cz: -1.4, team: 'Tech' },
-  { cx: -7.4, cz: -1.4, team: 'Comercial' },
-];
-
+export const SPAWN = { x: 1, z: 6.4 };
 export const DESK = { w: 1.5, d: 0.8, h: 0.62 };
+export const POD_COLORS = { 'Operações': '#2f7bff', 'Criação': '#ff7a6b', 'Tech': '#1fb59f', 'Comercial': '#f2a93b' };
 
-export const DESKS = PODS.flatMap((pod, pi) => {
-  const out = [];
-  [-1, 1].forEach((side, si) => {
-    [-1, 1].forEach((col, ci) => {
-      const n = pi * 4 + si * 2 + ci + 1;
-      const x = pod.cx + col * 0.77;
-      const z = pod.cz + side * 0.41;
-      // side -1: mesa do lado norte, a pessoa senta ao norte olhando para o sul (face 0)
-      const face = side < 0 ? 0 : Math.PI;
-      const seatZ = z + side * 0.78;
-      out.push({
-        id: `desk-${String(n).padStart(2, '0')}`,
-        label: `Mesa ${String(n).padStart(2, '0')}`,
-        zone: pod.team,
-        x, z, face,
-        seat: { x, z: seatZ, face },
-      });
-    });
-  });
-  return out;
-});
+// ------------------------------------------------------------------ layout padrão (editável)
+export function defaultLayout() {
+  const items = [];
+  let n = 0;
+  const add = (type, x, z, rot = 0, extra = {}) => { items.push({ id: extra.id || `${type}-${++n}`, type, x: +x.toFixed(3), z: +z.toFixed(3), rot: +rot.toFixed(4), ...extra }); };
+  const PI = Math.PI;
 
-// Assentos públicos (qualquer pessoa pode sentar clicando).
-export const SEATS = [];
-(() => {
-  // sala de reunião — mesa central (11.5, -7.5)
-  const mx = 11.5, mz = -7.5;
-  [-1.8, 0, 1.8].forEach((dx, i) => {
-    SEATS.push({ id: `meet-n${i}`, kind: 'chair', x: mx + dx, z: mz - 1.45, face: 0, h: 0.4 });
-    SEATS.push({ id: `meet-s${i}`, kind: 'chair', x: mx + dx, z: mz + 1.45, face: Math.PI, h: 0.4 });
+  // ilhas de trabalho (as 16 mesas mantêm os ids desk-01…desk-16)
+  const pods = [
+    { cx: -14, cz: -7.4, team: 'Operações' }, { cx: -7.4, cz: -7.4, team: 'Criação' },
+    { cx: -14, cz: -1.4, team: 'Tech' }, { cx: -7.4, cz: -1.4, team: 'Comercial' },
+  ];
+  pods.forEach((p, pi) => {
+    add('rug_rect', p.cx, p.cz, 0, { color: POD_COLORS[p.team] });
+    [-1, 1].forEach((side, si) => [-1, 1].forEach((col, ci) => {
+      const id = `desk-${String(pi * 4 + si * 2 + ci + 1).padStart(2, '0')}`;
+      add('desk', p.cx + col * 0.77, p.cz + side * 0.41, side < 0 ? 0 : PI, { id, team: p.team, color: POD_COLORS[p.team] });
+    }));
+    add('divider', p.cx, p.cz, 0, { color: POD_COLORS[p.team] });
+    add('pendant', p.cx - 0.77, p.cz); add('pendant', p.cx + 0.77, p.cz);
   });
-  SEATS.push({ id: 'meet-w', kind: 'chair', x: mx - 3.45, z: mz, face: Math.PI / 2, h: 0.4 });
-  SEATS.push({ id: 'meet-e', kind: 'chair', x: mx + 3.45, z: mz, face: -Math.PI / 2, h: 0.4 });
-  // lounge — sofá ao norte do tapete, olhando para o sul
-  [10.6, 11.9, 13.2, 14.5].forEach((x, i) => SEATS.push({ id: `sofa-${i}`, kind: 'sofa', x, z: 3.55, face: 0, h: 0.44 }));
-  SEATS.push({ id: 'arm-0', kind: 'armchair', x: 11, z: 8.6, face: Math.PI, h: 0.38 });
-  SEATS.push({ id: 'arm-1', kind: 'armchair', x: 14.2, z: 8.6, face: Math.PI, h: 0.38 });
-  // café — banquetas no balcão e mesas redondas
-  [6.6, 8.2, 9.8].forEach((z, i) => SEATS.push({ id: `bar-${i}`, kind: 'stool', x: -15.1, z, face: -Math.PI / 2, h: 0.5 }));
-  [[-11.5, 7.2], [-9, 10]].forEach(([tx, tz], t) => {
-    SEATS.push({ id: `cafe-${t}a`, kind: 'chair', x: tx - 0.95, z: tz, face: Math.PI / 2, h: 0.4 });
-    SEATS.push({ id: `cafe-${t}b`, kind: 'chair', x: tx + 0.95, z: tz, face: -Math.PI / 2, h: 0.4 });
-  });
+  add('whiteboard', -2.1, -4.4, -PI / 2);
+  add('printer', -3.4, -11.55, 0);
+  add('water_cooler', -17.5, -4.4, PI / 2);
+  add('bookshelf', -17.75, -0.2, PI / 2);
+  add('plant_tall', -17.35, -11.4); add('plant', -2.0, -11.45); add('plant', -17.4, 3.0); add('plant_tall', -2.2, 2.9);
+
   // cabines de foco
-  SEATS.push({ id: 'booth1-seat', kind: 'chair', x: 0.25, z: -10.55, face: Math.PI, h: 0.4 });
-  SEATS.push({ id: 'booth2-seat', kind: 'chair', x: 2.75, z: -10.55, face: Math.PI, h: 0.4 });
-})();
+  [0.375, 3.125].forEach((x, i) => {
+    add('table_booth', x, -11.6, 0);
+    add('chair_office', x, -10.65, PI, { color: i ? '#7c5cff' : '#1fb59f' });
+  });
+
+  // Sala do Valdinei e Sala da Fran
+  [[7.75, 'desk-valdinei', '#2f7bff'], [14.5, 'desk-fran', '#ff7a6b']].forEach(([cx, id, color], i) => {
+    add('rug_round', cx, -9.4, 0, { color: i ? '#f3d6e0' : '#d8e4f5' });
+    add('desk_exec', cx, -10.6, 0, { id });
+    add('chair_guest', cx - 0.6, -9.05, PI, { color });
+    add('chair_guest', cx + 0.6, -9.05, PI, { color });
+    add('bookshelf', i ? 16.9 : 5.6, -11.75, 0);
+    add('plant_tall', i ? 11.55 : 10.45, -11.45);
+    add('sofa_small', i ? 17.35 : 5.15, -8.4, i ? -PI / 2 : PI / 2, { color });
+    add('lamp_floor', i ? 17.45 : 5.05, -7.05);
+  });
+
+  // sala de reunião
+  add('table_meeting', 14.4, 0, 0);
+  [13, 14.4, 15.8].forEach((x) => { add('chair_office', x, -1.45, 0, { color: '#e9ecf2' }); add('chair_office', x, 1.45, PI, { color: '#e9ecf2' }); });
+  add('chair_office', 11.2, 0, PI / 2, { color: '#e9ecf2' });
+  add('chair_office', 17.55, 0, -PI / 2, { color: '#e9ecf2' });
+  add('tv', 14.4, -3.15, 0);
+  add('plant', 11.0, 3.0); add('plant_tall', 17.5, 3.0);
+
+  // área de jogos
+  add('rug_rect', 4.4, -0.6, 0, { color: '#7c5cff' });
+  add('pingpong', 4.4, -1.2, 0);
+  add('foosball', 8.3, 2.2, PI / 2);
+  add('arcade', 0.0, -4.85, 0); add('arcade', 1.0, -4.85, 0);
+  add('beanbag', 1.0, 2.6, PI * 0.8, { color: '#f2a93b' }); add('beanbag', 2.2, 3.2, PI, { color: '#1fb59f' });
+  add('plant_tall', 9.9, -4.9); add('tree_indoor', -0.6, 3.6);
+  add('vending', 7.2, -5.0, 0);
+
+  // café
+  add('kitchen', -17.6, 8.6, PI / 2);
+  add('fridge', -17.45, 11.45, PI / 2);
+  add('bar_counter', -15.95, 8.2, PI / 2);
+  [6.6, 8.2, 9.8].forEach((z) => add('stool', -15.1, z, -PI / 2, { color: '#f2a93b' }));
+  [[-11.5, 7.2], [-9, 10]].forEach(([x, z]) => {
+    add('table_round', x, z);
+    add('chair_wood', x - 0.95, z, PI / 2, { color: '#ff7a6b' });
+    add('chair_wood', x + 0.95, z, -PI / 2, { color: '#ff7a6b' });
+  });
+  add('plant_tall', -8.4, 11.4); add('plant', -12.8, 11.45); add('pendant', -15.95, 7.1); add('pendant', -15.95, 9.3);
+
+  // recepção
+  add('welcome_mat', 1, 6.7, 0);
+  add('reception', 1, 9.4, 0);
+  add('plant_tall', -1.5, 9.4); add('plant_tall', 3.5, 9.4);
+  add('bench', -3.2, 11.3, PI);
+
+  // lounge
+  add('rug_round', 13, 7.9, 0, { color: '#f3e4cf' });
+  add('sofa', 13, 5.95, 0, { color: '#2a7f7a' });
+  add('table_coffee', 13, 7.85, 0);
+  add('armchair', 11.2, 9.85, PI, { color: '#ff7a6b' });
+  add('armchair', 14.8, 9.85, PI, { color: '#f2a93b' });
+  add('lamp_floor', 15.9, 5.6);
+  add('cabinet_low', 17.6, 8.6, -PI / 2);
+  add('beanbag', 16.8, 11.0, PI, { color: '#7c5cff' }); add('beanbag', 9.2, 11.1, PI, { color: '#1fb59f' });
+  add('plant_tall', 8.6, 5.6); add('plant', 17.5, 5.5); add('plant_tall', 17.45, 11.45);
+  return items;
+}
+
+export function seatsOf(items) {
+  return items.flatMap(itemSeats);
+}
+
+export function desksOf(items) {
+  let i = 0;
+  return items.filter((it) => CATALOG[it.type]?.desk).map((it) => {
+    i++;
+    const label = it.id === 'desk-valdinei' ? 'Mesa do Valdinei' : it.id === 'desk-fran' ? 'Mesa da Fran' : `Mesa ${/^desk-\d+$/.test(it.id) ? it.id.slice(5) : String(i).padStart(2, '0')}`;
+    const room = zoneAt(it.x, it.z);
+    return { id: it.id, label, zone: it.team || room.label, item: it, seat: itemSeats(it)[0] };
+  });
+}
 
 export const PROXIMITY = { full: 2.2, max: 4.6 };
 

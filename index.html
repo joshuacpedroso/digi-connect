@@ -108,6 +108,7 @@
         <span class="zone" id="zoneName"><i class="zone-dot"></i><span>Recepção</span></span>
       </div>
       <div class="hud-right">
+        <button class="pill glass edit-btn" id="editBtn" hidden title="Editar o escritório">✏️ <span class="hide-sm">Editar escritório</span></button>
         <div class="pill glass net" id="netPill"><i></i><span>Conectando</span></div>
         <button class="pill glass people-btn" id="peopleToggle" title="Pessoas e reuniões">
           <span class="stack" id="onlineStack"></span><b id="onlineCount">1</b><span class="hide-sm">online</span>
@@ -165,6 +166,21 @@
     <div class="hint glass" id="hint"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> andar · clique no chão para ir · clique numa mesa para sentar · <kbd>M</kbd> mic · <kbd>V</kbd> câmera</div>
     <div id="joystick"><i></i></div>
   </section>
+
+  <!-- editor do escritório -->
+  <section id="editorUI" hidden>
+    <div class="ed-top glass">
+      <span class="ed-title">✏️ <b>Editando o escritório</b></span>
+      <span class="ed-help">Clique e arraste para mover · <kbd>R</kbd> gira · <kbd>D</kbd> duplica · <kbd>Del</kbd> apaga · arraste o chão para navegar</span>
+      <div class="ed-actions">
+        <button class="btn-ghost sm" id="edReset">Restaurar padrão</button>
+        <button class="btn-ghost sm" id="edCancel">Descartar</button>
+        <button class="btn-primary sm" id="edSave">Salvar layout</button>
+      </div>
+    </div>
+    <aside class="ed-catalog glass"><span class="eyebrow">Adicionar ao escritório</span><div id="edCatalog"></div></aside>
+  </section>
+  <div id="edTools" class="glass" hidden></div>
 
   <!-- popovers / modais -->
   <div id="pop" class="pop glass" hidden></div>

@@ -1,10 +1,11 @@
 // Kit de construção 3D: materiais, texturas procedurais e primitivas "fofinhas" (cantos arredondados).
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const matCache = new Map();
 export function mat(color, opts = {}) {
-  const k = color + JSON.stringify(opts);
+  const k = String(color) + '|' + Object.keys(opts).sort().map((key) => { const v = opts[key]; return key + ':' + (v?.isTexture ? v.uuid : v?.isColor ? v.getHexString() : String(v)); }).join(',');
   if (!matCache.has(k)) {
     const m = new THREE.MeshStandardMaterial({ color, roughness: 0.78, metalness: 0, ...opts });
     matCache.set(k, m);
@@ -250,4 +251,81 @@ export function windowSkyTexture() {
     ctx.fillStyle = 'rgba(120,170,140,.55)';
     for (let i = 0; i < 9; i++) { ctx.beginPath(); ctx.arc(i * 32, h - 20, 26, 0, Math.PI * 2); ctx.fill(); }
   }, [1, 1]);
+}
+
+export function noiseTexture(base = '#888888', amount = 0.06, size = 256, repeat = [2, 2]) {
+  return canvasTex(size, size, (ctx, w, h) => {
+    ctx.fillStyle = base; ctx.fillRect(0, 0, w, h);
+    const rand = rng(11);
+    for (let i = 0; i < w * h * 0.25; i++) {
+      ctx.fillStyle = rand() > 0.5 ? `rgba(255,255,255,${amount})` : `rgba(0,0,0,${amount})`;
+      ctx.fillRect(rand() * w, rand() * h, 1.5, 1.5);
+    }
+  }, repeat);
+}
+
+export function labelTexture(text, { bg = '#ffffff', fg = '#1b2a4a', w = 512, h = 128, font = 700 } = {}) {
+  return canvasTex(w, h, (ctx) => {
+    ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect(0, 0, w, h, h * 0.25); ctx.fill();
+    ctx.fillStyle = fg; ctx.font = `${font} ${Math.round(h * 0.42)}px "Plus Jakarta Sans", system-ui, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, w / 2, h / 2 + 2);
+  }, [1, 1]);
+}
+
+export function gameScreenTexture(seed = 1) {
+  return canvasTex(128, 160, (ctx, w, h) => {
+    ctx.fillStyle = '#0b0b2a'; ctx.fillRect(0, 0, w, h);
+    const rand = rng(seed * 13);
+    for (let i = 0; i < 40; i++) { ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillRect(rand() * w, rand() * h, 1, 1); }
+    const cols = ['#ff4fd8', '#4fe3ff', '#ffe94f', '#6bff4f'];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) { ctx.fillStyle = cols[r]; ctx.fillRect(10 + c * 18, 18 + r * 16, 10, 8); }
+    ctx.fillStyle = '#4fe3ff'; ctx.beginPath(); ctx.moveTo(64, 130); ctx.lineTo(54, 148); ctx.lineTo(74, 148); ctx.fill();
+    ctx.fillStyle = '#ffe94f'; ctx.font = 'bold 12px monospace'; ctx.fillText('SCORE 4200', 8, 12);
+  }, [1, 1]);
+}
+
+export function snackTexture() {
+  return canvasTex(128, 192, (ctx, w, h) => {
+    ctx.fillStyle = '#1b2033'; ctx.fillRect(0, 0, w, h);
+    const cols = ['#ff5d6e', '#ffd479', '#5aa8ff', '#7ee0c3', '#c4b5fd', '#ff9f43'];
+    for (let r = 0; r < 5; r++) {
+      ctx.fillStyle = '#3a4058'; ctx.fillRect(4, 30 + r * 34, w - 8, 3);
+      for (let c = 0; c < 4; c++) { ctx.fillStyle = cols[(r + c) % cols.length]; ctx.fillRect(10 + c * 28, 10 + r * 34, 18, 20); }
+    }
+  }, [1, 1]);
+}
+
+// Junta malhas estáticas em poucas malhas (1 por material). Ignora o que tiver userData.dynamic/kind.
+export function mergeStatic(root) {
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const buckets = new Map();
+  const remove = [];
+  root.traverse((o) => {
+    if (!o.isMesh || Array.isArray(o.material) || o.userData.kind) return;
+    for (let p = o; p && p !== root; p = p.parent) if (p.userData.dynamic) return;
+    const key = `${o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${o.renderOrder}`;
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name);
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    g.morphAttributes = {};
+    g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+    if (!buckets.has(key)) buckets.set(key, { mat: o.material, cast: o.castShadow, receive: o.receiveShadow, order: o.renderOrder, geos: [] });
+    buckets.get(key).geos.push(g);
+    remove.push(o);
+  });
+  for (const o of remove) o.parent.remove(o);
+  for (const b of buckets.values()) {
+    const geo = mergeGeometries(b.geos, false);
+    b.geos.forEach((g) => g.dispose());
+    if (!geo) continue;
+    const m = new THREE.Mesh(geo, b.mat);
+    m.castShadow = b.cast;
+    m.receiveShadow = b.receive;
+    m.renderOrder = b.order;
+    m.matrixAutoUpdate = false;
+    root.add(m);
+  }
+  root.updateMatrixWorld(true);
 }

@@ -311,3 +311,30 @@ kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; 
 }
 @media (pointer: coarse) { #joystick { display: block; } }
 @media (prefers-reduced-motion: reduce) { * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+
+/* ---------------------------------------------------- editor */
+.edit-btn { padding: 6px 14px; color: #ffe7a8; font-weight: 800; }
+.edit-btn:hover { background: rgba(255, 212, 121, 0.16); }
+body.editing #dock, body.editing #panel, body.editing #minimap, body.editing .hint, body.editing #joystick, body.editing #callInfo, body.editing #overlay, body.editing #inviteCard { display: none !important; }
+#editorUI { position: fixed; inset: 0; z-index: 25; pointer-events: none; }
+#editorUI > * { pointer-events: auto; }
+.ed-top { position: absolute; top: 70px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 16px; border-radius: 18px; max-width: calc(100vw - 24px); flex-wrap: wrap; justify-content: center; }
+.ed-title { font-size: 14px; color: #ffe7a8; white-space: nowrap; }
+.ed-help { font-size: 11px; color: var(--muted); }
+.ed-actions { display: flex; gap: 6px; }
+.ed-catalog { position: absolute; left: 16px; top: 140px; bottom: 16px; width: 228px; border-radius: 20px; padding: 14px; overflow: auto; display: grid; gap: 12px; align-content: start; }
+.ed-cat b { display: block; font-size: 11px; color: #c9d6f0; margin: 4px 0 6px; letter-spacing: 0.04em; }
+.ed-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.ed-card { display: grid; justify-items: center; gap: 3px; padding: 8px 4px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); transition: transform 0.12s, background 0.12s; }
+.ed-card:hover { background: rgba(90, 168, 255, 0.18); transform: translateY(-2px); }
+.ed-card span { font-size: 22px; }
+.ed-card small { font-size: 9px; font-weight: 700; color: #cfdbf5; text-align: center; line-height: 1.2; }
+#edTools { position: fixed; z-index: 30; display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-radius: 14px; flex-wrap: wrap; max-width: 420px; }
+#edTools strong { font-size: 12px; margin-right: 6px; white-space: nowrap; }
+#edTools button { min-width: 32px; height: 32px; border-radius: 9px; font-size: 16px; color: #fff; background: rgba(255, 255, 255, 0.08); }
+#edTools button:hover { background: rgba(255, 255, 255, 0.16); }
+#edTools button.danger { background: rgba(255, 93, 110, 0.22); }
+.ed-colors { display: flex; gap: 3px; margin-left: 4px; }
+#edTools .ed-sw { min-width: 18px; width: 18px; height: 18px; border-radius: 50%; background: var(--c); border: 2px solid rgba(255, 255, 255, 0.25); padding: 0; }
+#edTools .ed-sw.on { border-color: #fff; box-shadow: 0 0 0 2px rgba(90, 168, 255, 0.6); }
+@media (max-width: 860px) { .ed-catalog { top: auto; height: 38vh; width: auto; right: 16px; } .ed-help { display: none; } }
